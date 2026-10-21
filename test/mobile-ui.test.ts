@@ -165,6 +165,41 @@ after(async () => {
     cleanUp();
 });
 
+test("/all-usage lets a steering guest request the first dashboard", real, async () => {
+    await fresh();
+    await tap(row(first));
+    await reach({ path: `/s/${first}` }, "the session");
+    const submitted = await inPage<unknown[]>(`
+        const { store, actions } = await import("/store.js");
+        const { parseCommand } = await import("/commands.js");
+        const original = { me: store.state.me, server: store.state.server };
+        const submit = actions.submit;
+        const calls = [];
+
+        try {
+            store.set({
+                me: { ...original.me, role: "guest" },
+                server: {
+                    ...original.server,
+                    extensions: [
+                        ...original.server.extensions,
+                        "subscriptions-usage-dashboard",
+                    ],
+                },
+            });
+            actions.submit = (...args) => { calls.push(args); };
+            await parseCommand("/all-usage").command.run("");
+
+            return JSON.stringify(calls);
+        } finally {
+            actions.submit = submit;
+            store.set(original);
+        }
+    `);
+
+    assert.deepEqual(submitted, [["show provider usage", [], "steer"]]);
+});
+
 test("back closes the open file, then the Files tile, then leaves the session", real, async () => {
     await fresh();
     await tap(row(first));

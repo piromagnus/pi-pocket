@@ -469,6 +469,20 @@ export function MenuSheet({ places = true }) {
             ${session && steer && driving && item("Instructions for Pi", () => openSheet({ type: "instructions" }), instructions ? "on" : "none")}
             ${conversation && steer && driving && item("Compact context", () => openSheet({ type: "compact" }), "summarize older messages")}
             ${conversation && steer && driving && item("New context", () => openSheet({ type: "reset" }), "Pi starts fresh; history stays")}
+            ${
+                session &&
+                steer &&
+                driving &&
+                item(
+                    "Auto-resume after usage reset",
+                    () => attempt(() => actions.setUsageResume(!view.usageResume?.on)),
+                    view.usageResume?.pending
+                        ? `waiting until ${new Date(view.usageResume.pending.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                        : view.usageResume?.on
+                          ? "on"
+                          : "off",
+                )
+            }
             ${conversation && memoryAvailable() && item("Memory", () => openSheet({ type: "memory" }), memoryHint(memory))}
             ${schedulesAvailable() && item("Scheduled messages", () => openSheet({ type: "schedules" }), view.schedules.length === 0 ? "none" : `${view.schedules.length} coming`)}
             ${

@@ -54,7 +54,10 @@ export function gitDirOf(cwd: string): string | undefined {
         try {
             const found = statSync(dotGit, { throwIfNoEntry: false });
 
-            if (found?.isDirectory()) {
+            if (
+                found?.isDirectory() &&
+                statSync(join(dotGit, "HEAD"), { throwIfNoEntry: false })?.isFile()
+            ) {
                 return dotGit;
             }
 

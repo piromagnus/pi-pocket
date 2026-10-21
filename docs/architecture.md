@@ -24,7 +24,7 @@ Some state lives in this process alone, and a restart forgets it. For example:
 
 **Its parts:**
 
-- `commands`, `extensionCommands`, `collab`, `alerts`, `providers`, `schedules`, `goals`, `shell`, `spend`
+- `commands`, `extensionCommands`, `collab`, `alerts`, `providers`, `schedules`, `usageResumes`, `goals`, `shell`, `spend`
 - `workspace`, `transcripts`, `attribution`, `piSessions`, `pip`, `watches`, `hooks`, `memory`, `gallery`
 - `browsers`, `linkedSessions`
 
@@ -116,6 +116,20 @@ Lessons Pi keeps across sessions are one document for the whole app, `MemoryDoc`
 8. Resume the work the last process left unfinished.
 
 Work resumes last, so that everything that follows commits is listening before the first one comes.
+
+## Extension-owned providers
+
+An extension module can also export `providers(host)` and `dispose()`. The loader stages its Durable factory and provider configurations before publishing them, owns the provider IDs it registered, and rejects collisions with built-in or other modules' providers. Loads use 0.18.0's deadlines and generation checks: a superseded load installs nothing. Failure preserves the previous provider, while a successful replacement disposes the old module's workers. Disable, file removal, and server close unregister the owned providers and dispose the module. No provider configuration is written into Pocket's stored session data; the enabled-module choice and each session's model reference remain the durable state.
+
+The optional [Claude Bridge adapter](claude-bridge.md) uses this contract. Its SDK state lives outside the server in a worker per provider session identity, with a fixed cwd supplied by a Durable hook through `host.cwdOf`. After a restart it reconstructs the upstream mirror from the durable transcript, rather than rerunning committed tools. Titles and compactions use isolated, tool-free workers, not a live conversation's parked SDK query.
+
+The optional [Gemini subscription bridge](gemini-bridge.md) uses the same provider-module contract, but has no native agent worker: it delegates conversion and streaming to Pi's OpenAI Chat Completions transport through a loopback CLIProxyAPI. It reads the local proxy config and exact Antigravity-owned Gemini catalog before requests, rejects known paid/substitution configuration, bypasses environment HTTP proxies, and never executes upstream tools. Disable/dispose aborts requests and destroys its direct dispatcher. The proxy and its Google subscription login remain external, trusted infrastructure; the adapter does not attest billing eligibility or provider-policy permission.
+
+The optional [provider usage dashboard](provider-usage.md) is a tool-only drop-in, not a provider registration. It reads provider configuration and the calling conversation’s `UsageDoc`, makes fixed read-only usage requests, and delegates artifact storage to the existing artifact tool implementation. Anyone who can steer Pi can request it through the normal submission access checks; viewers can only open existing snapshots. It adds no HTTP routes or document kinds. Credentials and raw responses remain outside committed tool output; only normalized snapshot HTML is stored in the existing artifact documents. Its all-session totals scan every conversation's `UsageDoc` in a read-only commit. For providers without a usage endpoint it reads `host.providerLimits()`: `provider-limits.ts` overrides `streamSimple` on the app's `ModelRuntime` instance (which `completeSimple` goes through) to add an `onResponse` callback for pi-ai's own HTTP APIs only, keeping the limit headers of each provider's latest response in memory and in `provider-limits.json`. Extension providers get no callback: Claude Bridge refuses instrumentation across its worker boundary.
+
+## Usage-reset continuation
+
+`usage-resume.ts` contributes a generation `afterResponse` hook and a durable task to `pocket-core`. The per-conversation `UsageResumeDoc` is opt-in and forks start with it off and without a pending task. On a recognized subscription error, `usage-reset.ts` uses the provider's reset guidance or fresh five-hour limit headers correlated to that exact assistant response. `provider-limits.ts` keeps that correlation in an in-memory weak map, separate from the provider-wide dashboard sample, without persisting message or conversation IDs. It never fetches account usage or guesses a five-hour delay. The hook idempotently records one conversation-owned wake-up per source generation, separately from the failing generation so it can settle unanswered. The task is not background work: a conversation Stop aborts it. At wake-up it requires the failed generation's assistant error to still be the latest transcript entry, an unchanged response model, and current access, driver, archive, and spend checks. It implements only idle, empty-inbox input admission with Durable's public `Tx` API: those checks, a stable requester-scoped submission ID, user entry, successor generation, and wake-up settlement share one Session commit. Config-file permissions are checked again after the awaited writes; revocation rolls back all staged admission work. Busy chats or queued work cancel rather than queue the continuation. Browser closure does not affect it; restart resumes its saved sleep. See [auto-resume.md](auto-resume.md).
 
 ## The commit coordinator
 

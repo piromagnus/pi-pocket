@@ -108,3 +108,10 @@ These examples work. `npm test` runs them (`test/docs-examples.test.ts`):
 - **Do not block.** Tools run in the server process. Use async file and process calls, never `execSync` or a busy loop. A slow tool delays only its call; a blocked event loop delays everyone.
 - **Do not get around a block.** A guard or a person said no for a reason.
 - **Keep secrets out.** The text of a section, a tool's description, and a result go to the model provider.
+
+
+## Local provider modules retained in this installation
+
+The [Claude Bridge](claude-bridge.md) and [Gemini bridge](gemini-bridge.md) use the local provider-module additions: an async default factory, optional `providers(host)` returning `{ id, config }` registrations, and optional `dispose()` for that module instance's resources. IDs cannot replace built-in providers, externally registered providers, or another module's providers. Failed replacements roll back; a successful replacement disposes the previous workers. Disable, removal, and shutdown unregister owned providers and dispose resources. The loader keeps 0.18.0's load deadlines and generation checks, so a superseded load installs nothing.
+
+Provider registrations are rebuilt from enabled modules at startup; session model references remain durable. The host exposes `cwdOf` and `providerLimits`, without exposing the full model runtime. The [usage dashboard](provider-usage.md) is a tool-only extension. Working examples are [claude-bridge.ts](examples/claude-bridge.ts), [gemini-bridge.ts](examples/gemini-bridge.ts), and [provider-usage.ts](examples/provider-usage.ts).

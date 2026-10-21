@@ -29,6 +29,18 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Extension, Registry } from "@earendil-works/pi-durable";
 import { describe } from "./errors.ts";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { ProviderConfigInput, ProviderRegistration } from "./host.ts";
+
+/** Only the loader, not PocketHost, can mutate the provider registry. */
+export type ProviderRegistry = { getProviders(): readonly { id: string }[] } & Pick<
+    ModelRuntime,
+    | "getRegisteredProviderIds"
+    | "getRegisteredProviderConfig"
+    | "registerProvider"
+    | "unregisterProvider"
+>;
+
 import { ExtensionWebs, OLDEST_POCKET_API, POCKET_API } from "./extension-web.ts";
 import type { ExtensionModule, PocketHost, WebAccess } from "./host.ts";
 
@@ -281,6 +293,10 @@ export class ExtensionLoader {
     readonly #dropIn: string | undefined;
     readonly #choice: (file: string) => boolean | undefined;
     readonly #webs: ExtensionWebs;
+    readonly #providers: ProviderRegistry | undefined;
+    readonly #reservedProviders: Set<string>;
+    readonly #registrations = new Map<string, ProviderRegistration[]>();
+    readonly #providerConfigs = new Map<string, ProviderConfigInput>();
     /** Extension names each file installed, to uninstall the ones a new version no longer provides. */
     readonly #installed = new Map<string, Extension[]>();
     readonly #errors = new Map<string, string>();
@@ -314,6 +330,7 @@ export class ExtensionLoader {
         choice: (file: string) => boolean | undefined = () => undefined,
         options: {
             webs?: ExtensionWebs;
+            providers?: ProviderRegistry;
             notify?: (level: "info" | "warning" | "error", message: string) => void;
             /** How long a load may take; tests make it short. */
             loadLimitMs?: number;
@@ -325,6 +342,11 @@ export class ExtensionLoader {
         this.#dropIn = folders.dropIn;
         this.#choice = choice;
         this.#webs = options.webs ?? new ExtensionWebs();
+        this.#providers = options.providers;
+        this.#reservedProviders = new Set([
+            ...(options.providers?.getProviders().map((provider) => provider.id) ?? []),
+            ...(options.providers?.getRegisteredProviderIds() ?? []),
+        ]);
         this.#notify = options.notify ?? ((level, message) => host.notice(level, message));
         this.#loadLimitMs = options.loadLimitMs ?? LOAD_LIMIT_MS;
     }
@@ -613,8 +635,39 @@ export class ExtensionLoader {
         // and what it set up (its cleanups) goes. The new version starts before the old one's cleanups run.
         const { part, web } = this.#webs.stage(file, module.directory, titleOf(file));
         let committed = false;
+        let registrations: ProviderRegistration[] | undefined;
+
+        if (loaded.providers !== undefined || loaded.dispose !== undefined) {
+            web.onDispose(async () => {
+                if (
+                    registrations !== undefined &&
+                    this.#registrations.get(file) === registrations
+                ) {
+                    for (const { id } of registrations) {
+                        this.#cleanup(file, `unregister ${id} failed`, () => {
+                            if (this.#ownsProvider(id)) {
+                                this.#providers!.unregisterProvider(id);
+                            }
+                        });
+                        this.#providerConfigs.delete(id);
+                    }
+
+                    this.#registrations.delete(file);
+                }
+
+                await this.#dispose(file, loaded);
+            });
+        }
 
         try {
+            if (loaded.providers !== undefined && typeof loaded.providers !== "function") {
+                throw new Error("the module's providers export is not a function");
+            }
+
+            if (loaded.dispose !== undefined && typeof loaded.dispose !== "function") {
+                throw new Error("the module's dispose export is not a function");
+            }
+
             const returned = loaded.default(this.#host, web) as unknown;
             // An async default export: it may register until it settles.
             const built = isThenable(returned)
@@ -654,12 +707,23 @@ export class ExtensionLoader {
                 this.#checkNames(file, extensions);
             }
 
+            registrations =
+                loaded.providers === undefined
+                    ? []
+                    : await this.#within(
+                          Promise.resolve(loaded.providers(this.#host)),
+                          deadline,
+                          file,
+                      );
+
+            this.#stillLatest(file, generation);
+
             // A new array, so that one the module froze or keeps is not changed.
             const installed =
                 module.source === "drop-in" ? extensions.map(keepsContent) : extensions;
 
             this.#webs.check(part);
-            this.#replace(installed, this.#installed.get(file) ?? []);
+            this.#replaceWithProviders(file, installed, registrations);
             this.#installed.set(file, installed);
             this.#errors.delete(file);
             this.#webs.commit(
@@ -779,6 +843,161 @@ export class ExtensionLoader {
                 "Could not put the extensions back as they were: restart the server to load them again",
             );
         }
+    }
+
+    #report(file: string, action: string, error: unknown): void {
+        // Cleanup failures must not hide a load error or interrupt other modules' cleanup.
+        try {
+            this.#host.notice("error", `Extension ${file} ${action}: ${describe(error)}`);
+        } catch {
+            // A notice listener must not turn best-effort cleanup into an unhandled rejection.
+        }
+    }
+
+    #cleanup(file: string, action: string, operation: () => void): void {
+        try {
+            operation();
+        } catch (error) {
+            this.#report(file, action, error);
+        }
+    }
+
+    async #dispose(file: string, loaded: ExtensionModule | undefined): Promise<void> {
+        try {
+            await loaded?.dispose?.();
+        } catch (error) {
+            this.#report(file, "cleanup failed", error);
+        }
+    }
+
+    #ownsProvider(id: string): boolean {
+        return (
+            this.#providerConfigs.has(id) &&
+            this.#providers?.getRegisteredProviderConfig(id) === this.#providerConfigs.get(id)
+        );
+    }
+
+    #checkProviders(file: string, registrations: ProviderRegistration[]): void {
+        if (!Array.isArray(registrations)) {
+            throw new Error("providers(host) must return an array of provider registrations");
+        }
+
+        if (registrations.length > 0 && this.#providers === undefined) {
+            throw new Error("provider modules are not supported by this extension loader");
+        }
+
+        const owners = new Map<string, string>();
+        const known = new Set([
+            ...(this.#providers?.getProviders().map((provider) => provider.id) ?? []),
+            ...(this.#providers?.getRegisteredProviderIds() ?? []),
+        ]);
+        const seen = new Set<string>();
+
+        for (const [other, installed] of this.#registrations) {
+            for (const { id } of installed) {
+                owners.set(id, other);
+
+                if (other === file && !this.#ownsProvider(id)) {
+                    throw new Error(`provider ${id} is no longer owned by ${file}`);
+                }
+            }
+        }
+
+        for (const registration of registrations) {
+            const { id, config } = registration ?? {};
+
+            if (
+                typeof id !== "string" ||
+                id.trim() === "" ||
+                id.trim() !== id ||
+                config === null ||
+                typeof config !== "object" ||
+                Array.isArray(config)
+            ) {
+                throw new Error(
+                    "each provider registration must have a nonempty id and a config object",
+                );
+            }
+
+            if (seen.has(id)) {
+                throw new Error(`the module registers provider ${id} more than once`);
+            }
+
+            seen.add(id);
+            const owner = owners.get(id);
+
+            if (owner !== undefined && owner !== file) {
+                throw new Error(`${owner} already registers provider ${id}`);
+            }
+
+            if (this.#reservedProviders.has(id) || (known.has(id) && owner !== file)) {
+                throw new Error(
+                    `provider ${id} is built-in or already registered outside this module`,
+                );
+            }
+        }
+    }
+
+    #replaceWithProviders(
+        file: string,
+        extensions: Extension[],
+        registrations: ProviderRegistration[],
+    ): void {
+        this.#checkProviders(file, registrations);
+        const previous = this.#registrations.get(file) ?? [];
+        const configs = new Map(this.#providerConfigs);
+        const before = this.#registry.snapshot().installed();
+        const attempted = new Set<string>();
+
+        try {
+            for (const { id, config } of registrations) {
+                attempted.add(id);
+
+                if (this.#ownsProvider(id)) {
+                    this.#providers!.unregisterProvider(id);
+                }
+
+                this.#providers!.registerProvider(id, config);
+            }
+
+            this.#replace(extensions, this.#installed.get(file) ?? []);
+
+            for (const { id } of previous) {
+                if (!registrations.some((registration) => registration.id === id)) {
+                    attempted.add(id);
+                    this.#providers!.unregisterProvider(id);
+                }
+            }
+        } catch (error) {
+            this.#restore(before);
+
+            for (const id of attempted) {
+                this.#cleanup(file, `provider ${id} rollback failed`, () => {
+                    this.#providers!.unregisterProvider(id);
+                    const config = configs.get(id);
+
+                    if (config !== undefined) {
+                        this.#providers!.registerProvider(id, config);
+                        this.#providerConfigs.set(
+                            id,
+                            this.#providers!.getRegisteredProviderConfig(id)!,
+                        );
+                    }
+                });
+            }
+
+            throw error;
+        }
+
+        for (const { id } of previous) {
+            this.#providerConfigs.delete(id);
+        }
+
+        for (const { id } of registrations) {
+            this.#providerConfigs.set(id, this.#providers!.getRegisteredProviderConfig(id)!);
+        }
+
+        this.#registrations.set(file, registrations);
     }
 
     /**

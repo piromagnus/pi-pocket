@@ -10,6 +10,7 @@ import type {
     TaskId,
     Tx,
 } from "@earendil-works/pi-durable";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Browsers } from "./browser.ts";
 import type { Gallery } from "./gallery.ts";
 import type { Role, User } from "./config.ts";
@@ -18,6 +19,7 @@ import type { LancetGuard } from "./lancet.ts";
 import type { Memory } from "./memory.ts";
 import type { Pip } from "./pip.ts";
 import type { PipCompaction } from "./pip-compact.ts";
+import type { ProviderLimit } from "./provider-limits.ts";
 import type { Schedules } from "./schedules.ts";
 import type { RepoWatches } from "./repo-watches.ts";
 import type { Watches } from "./watches.ts";
@@ -276,6 +278,10 @@ export interface PocketHost {
      * @experimental In 0.14: it can change in a minor release (docs/extensions/policies/api-stability.md).
      */
     readonly linkedSessions: LinkedSessionsApi;
+    /** The conversation's current working folder, resolved lazily from the app. */
+    cwdOf(conversationId: ConversationId): string;
+    /** The rate-limit headers each provider sent on Pi's latest request to it, and its latest refusal for a limit. */
+    providerLimits(): Readonly<Record<string, ProviderLimit>>;
     /** Messages to Pi for later: the schedule tool sets up Pi's own. */
     readonly schedules: Pick<Schedules, "add" | "cancel" | "list" | "task">;
     /** Sessions' goals: the goals extension runs their checks and counts them. */
@@ -437,7 +443,15 @@ export interface ExtensionWeb {
     command(name: string, command: ExtensionCommand): void;
 }
 
-/** The shape of every module in `src/server/extensions/`: a default export building one or more extensions. */
+/** Coding-agent's provider input type is not exported from its package root. */
+export type ProviderConfigInput = Parameters<ModelRuntime["registerProvider"]>[1];
+
+export interface ProviderRegistration {
+    id: string;
+    config: ProviderConfigInput;
+}
+
+/** A Durable factory, optionally contributing providers and owning module-local worker cleanup. */
 export type ExtensionModule = {
     /** Builds the module's extensions; a module that only adds to the app returns nothing. It may be async. */
     default: (
@@ -446,4 +460,6 @@ export type ExtensionModule = {
     ) => Extension | readonly Extension[] | void | Promise<Extension | readonly Extension[] | void>;
     /** The version of the extension API the module needs, when it says: a newer one than the app's is not loaded. */
     pocketApi?: unknown;
+    providers?: (host: PocketHost) => ProviderRegistration[] | Promise<ProviderRegistration[]>;
+    dispose?: () => void | Promise<void>;
 };

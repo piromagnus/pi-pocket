@@ -95,12 +95,14 @@ import { loadPromptTemplates, type PromptTemplate, type SkillCommand } from "./p
 import { BASE_THEME, Themes } from "./themes.ts";
 import { THEME_ID } from "./themes/format.ts";
 import { measureModelStreams } from "./timing.ts";
+import { ProviderLimits, recordResponses } from "./provider-limits.ts";
 import { Providers } from "./providers.ts";
 import { PushStore } from "./push.ts";
 import { type ExtensionInfo, ExtensionLoader, linkTypes, prepareDropInFolder } from "./reload.ts";
 import { ResendTask } from "./resend.ts";
 import { type Client, reportingOf, Room, ROOM_DOCS, subagentView } from "./room.ts";
 import { Schedules } from "./schedules.ts";
+import { UsageResumes } from "./usage-resume.ts";
 import { Shell } from "./shell.ts";
 import {
     loadSessionSkills,
@@ -265,6 +267,8 @@ export class PocketApp {
     access: AccessInfo | undefined;
     harness!: Harness;
     models!: ModelRuntime;
+    /** The rate limits providers report on Pi's own requests. */
+    readonly providerLimits: ProviderLimits;
     settings!: SettingsManager;
     loader!: ExtensionLoader;
     readonly commands = new Commands(this);
@@ -274,6 +278,7 @@ export class PocketApp {
     readonly alerts = new Alerts(this);
     readonly providers = new Providers(this);
     readonly schedules = new Schedules(this);
+    readonly usageResumes = new UsageResumes(this);
     readonly goals = new Goals(this);
     readonly shell = new Shell(this);
     readonly spend = new Spend(this);
@@ -353,6 +358,7 @@ export class PocketApp {
         this.#home = options.home ?? (process.env.HOME || homedir());
         this.now = options.now ?? Date.now;
         this.dataDir = options.dataDir;
+        this.providerLimits = new ProviderLimits(options.dataDir, this.now);
         this.defaultCwd = options.defaultCwd;
         this.supervised = options.supervised;
         this.config = new ConfigStore(options.dataDir);
@@ -498,6 +504,7 @@ export class PocketApp {
         this.models = await ModelRuntime.create();
         installRequestShaping(this.models, this.#shapers, this.#log);
         this.providers.modelRefresh.watch(this.models);
+        recordResponses(this.models, this.providerLimits);
         this.#configureModels?.(this.models);
         measureModelStreams(this.models);
         await this.models.getAvailable().catch(() => []);
@@ -514,7 +521,9 @@ export class PocketApp {
                     this.shell.task,
                     this.commands.followTask,
                     this.extensionCommands.task,
+                    this.usageResumes.task,
                 ],
+                hooks: [this.usageResumes.hook],
             }),
         );
         const host: PocketHost = {
@@ -551,6 +560,8 @@ export class PocketApp {
             heldBack: (conversationId) => this.spend.heldBack(conversationId),
             onLimitsChanged: (listener) => this.spend.onLimitsChanged(listener),
             linkedSessions: this.linkedSessions,
+            cwdOf: (conversationId) => this.cwdOf(conversationId),
+            providerLimits: () => this.providerLimits.all(),
             schedules: this.schedules,
             goals: this.goals,
             browsers: this.browsers,
@@ -585,7 +596,11 @@ export class PocketApp {
             { builtIn: join(APP_ROOT, "src", "server", "extensions"), dropIn },
             (file) => this.config.extensionChoice(file),
             // What a module's load says can name the server's folders, or quote a provider: the owner's to read.
-            { webs: this.webs, notify: (level, message) => this.ownerNotice(level, message) },
+            {
+                webs: this.webs,
+                providers: this.models,
+                notify: (level, message) => this.ownerNotice(level, message),
+            },
         );
         await this.themes.load().catch((error: unknown) => {
             this.#log(`Themes could not be read: ${describe(error)}`);
@@ -2904,16 +2919,11 @@ export class PocketApp {
             this.alerts.close();
             this.themes.close();
             this.spend.close();
+            void this.providerLimits.flush();
             this.#unsubscribeCommits?.();
             this.#unsubscribeApprovals?.();
             this.#unsubscribeBrowsers?.();
             this.guard.close();
-
-            // Modules' cleanups may wait (closing a connection), but not for long: the rest must close too.
-            const cleaned = this.loader?.close();
-
-            // After the loader: its last changes could set it again.
-            clearTimeout(this.#websTimer);
 
             for (const client of this.#clients) {
                 client.send("closing", {});
@@ -2928,17 +2938,6 @@ export class PocketApp {
 
             this.providers.close();
 
-            // A timer that holds the process: with nothing else to do, Node would end it here, before the rest closed.
-            let limit: NodeJS.Timeout | undefined;
-
-            await Promise.race([
-                cleaned,
-                new Promise<void>((resolve) => {
-                    limit = setTimeout(resolve, CLEANUP_LIMIT_MS);
-                }),
-            ]);
-            clearTimeout(limit);
-
             try {
                 // Close writes no outcome: running work resumes when the next process opens the storage.
                 await this.harness?.close(context);
@@ -2947,9 +2946,28 @@ export class PocketApp {
                     await env.cleanup(context);
                 }
             } finally {
-                // After the harness: a browser call cut off by the stop resumes as interrupted, not as failed.
-                await this.browsers.closeAll({ final: true }).catch(() => {});
-                rmSync(this.#lockFile, { force: true });
+                try {
+                    // Stop generation before disposing provider workers, so stream shutdown cannot commit errors.
+                    let limit: NodeJS.Timeout | undefined;
+
+                    try {
+                        await Promise.race([
+                            this.loader?.close(),
+                            new Promise<void>((resolve) => {
+                                limit = setTimeout(resolve, CLEANUP_LIMIT_MS);
+                            }),
+                        ]);
+                    } finally {
+                        clearTimeout(limit);
+                        clearTimeout(this.#websTimer);
+                    }
+                } catch (error) {
+                    this.#log(`Extension cleanup failed: ${describe(error)}`);
+                } finally {
+                    // After the harness: a browser call cut off by the stop resumes as interrupted, not as failed.
+                    await this.browsers.closeAll({ final: true }).catch(() => {});
+                    rmSync(this.#lockFile, { force: true });
+                }
             }
         })();
 

@@ -169,6 +169,20 @@ export interface Host {
      * @since 0.1.0
      */
     notice(level: NoticeLevel, message: string, conversationId?: ConversationId): void;
+    /** The conversation's current working folder. Local provider bridge support. @since 0.18.0 */
+    cwdOf(conversationId: ConversationId): string;
+    /** Rate-limit information observed on each provider's latest response. Local usage support. @since 0.18.0 */
+    providerLimits(): Readonly<
+        Record<
+            string,
+            {
+                at: number;
+                status: number;
+                headers: Record<string, string>;
+                limited?: { at: number; headers: Record<string, string> };
+            }
+        >
+    >;
     /**
      * Why Pi cannot start work in a session when nobody asked for it (a spend limit), or undefined when it can.
      * @since 0.12.0

@@ -132,6 +132,26 @@ Since 0.14.0 · Stable
 
 The thinking levels, lowest first. They have the names that models and sessions use.
 
+### `cwdOf`
+
+```ts
+cwdOf(conversationId: ConversationId): string;
+```
+
+Since 0.18.0 · Stable
+
+Local addition retained for the provider bridges: resolves a conversation's current working folder when called.
+
+### `providerLimits`
+
+```ts
+providerLimits(): Readonly<Record<string, { at: number; status: number; headers: Record<string, string>; limited?: { at: number; headers: Record<string, string> } }>>;
+```
+
+Since 0.18.0 · Stable
+
+Local addition retained for the usage dashboard: returns each provider's latest observed rate-limit headers and latest limit refusal. Credentials and unrelated response headers are excluded.
+
 ## People and limits
 
 ### `requesterOf`

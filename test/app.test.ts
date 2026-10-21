@@ -26,6 +26,7 @@ import type { ConversationId } from "@earendil-works/pi-durable";
 import type { Attachment } from "../src/server/commands.ts";
 import createArtifacts from "../src/server/extensions/artifacts.ts";
 import type { PocketHost } from "../src/server/host.ts";
+import { SubagentsDoc } from "../src/server/docs.ts";
 
 /** The provider session id each request carried, with the message it answered. */
 const requests: { sessionId: string | undefined; text: string }[] = [];
@@ -60,6 +61,16 @@ const route: FauxResponseStep = (context, options) => {
             id: "demo-page",
             title: "Demo",
             edits: [{ oldText: "one", newText: "two" }],
+        });
+    }
+
+    if (text.includes("start a max helper")) {
+        return call("subagent", {
+            action: "spawn",
+            name: "helper-max",
+            model: "faux-2",
+            thinking: "max",
+            message: "say hi please",
         });
     }
 
@@ -342,6 +353,44 @@ test("a script's nested calls each do their own work", async () => {
         2,
         "the second nested artifact call made its own version",
     );
+});
+
+test("a subagent accepts max thinking and preserves its explicit model and level", async (t) => {
+    const faux = scriptedModel(route);
+
+    for (const model of faux.models) {
+        model.reasoning = true;
+        model.thinkingLevelMap = { xhigh: "xhigh", max: "max" };
+    }
+
+    const app = await openApp(faux, join(root, "max-thinking-data"));
+
+    t.after(() => app.close());
+    await app.setSubagentModels(ownerOf(app), ["faux/faux-2"]);
+    const id = await startSession(app);
+
+    await app.commands.configure(id, ownerOf(app), { thinkingLevel: "max" });
+    await sayTo(app, id, "start a max helper");
+    const { BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
+    const registry = await app.harness.snapshot(SubagentsDoc, id, BACKGROUND_CONTEXT);
+    const child = registry?.agents["helper-max"];
+
+    assert.ok(child, "max must pass tool validation and create the subagent");
+    const agent = await app.agentState(child.conversationId);
+
+    assert.deepEqual(agent?.model, { provider: "faux", modelId: "faux-2" });
+    assert.equal(agent?.thinkingLevel, "max", "the requested level must not be downgraded");
+    const conversation = (await app.harness.conversation(id, BACKGROUND_CONTEXT))!;
+
+    await until(async () => {
+        const view = await conversation.context(BACKGROUND_CONTEXT);
+
+        return view.messages.some((message) =>
+            JSON.stringify(message.content).includes(
+                "[subagent helper-max answered, no reply needed] hi from helper",
+            ),
+        );
+    }, "the max-thinking subagent to report its answer");
 });
 
 test("a pasted image is stored with its message and read back", async () => {

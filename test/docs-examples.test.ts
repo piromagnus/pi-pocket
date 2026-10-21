@@ -96,9 +96,12 @@ test("the example extensions load as drop-ins, off until the owner turns them on
     assert.deepEqual(
         listed.map((module) => [module.file, module.enabled]),
         [
+            ["claude-bridge.ts", false],
             ["clock.ts", false],
+            ["gemini-bridge.ts", false],
             ["my-words.ts", false],
             ["no-force-push.ts", false],
+            ["provider-usage.ts", false],
             ["server-status.ts", false],
         ],
     );
