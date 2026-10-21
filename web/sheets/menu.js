@@ -538,6 +538,7 @@ export function MenuSheet({ places = true }) {
         }
         <div class="group">
             <div class="group-title">App</div>
+            ${item("Ponytail mode", () => openSheet({ type: "ponytail" }), server?.ponytailMode ?? "full")}
             ${item("Appearance", () => openSheet({ type: "appearance" }), lookLabel())}
             ${!touch && item("Keyboard shortcuts", () => openSheet({ type: "shortcuts" }), "?")}
             ${
@@ -575,6 +576,45 @@ export function MenuSheet({ places = true }) {
                 )
             }
             ${item(html`<span class="menu-signout">Sign out</span>`, signOut)}
+        </div>
+    <//>`;
+}
+
+export function PonytailSheet() {
+    const current = store.state.server?.ponytailMode ?? "full";
+    const modes = [
+        { id: "off", label: "off", desc: "No lazy senior dev rules applied." },
+        { id: "lite", label: "lite", desc: "Lite mode: prioritize clarity and minimal diffs." },
+        {
+            id: "full",
+            label: "full",
+            desc: "Full mode: shortest working diff, no unneeded abstractions.",
+        },
+        {
+            id: "ultra",
+            label: "ultra",
+            desc: "Ultra mode: refuse any new abstraction, delete unused code.",
+        },
+    ];
+
+    return html`<${Sheet} title="Ponytail Mode" onClose=${closeSheet}>
+        <div class="list">
+            ${modes.map(
+                (m) =>
+                    html`<button
+                        class=${`list-item ${current === m.id ? "selected" : ""}`}
+                        onClick=${() => {
+                            actions.setPonytailMode(m.id);
+                            closeSheet();
+                            notify("info", `Ponytail mode set to ${m.id}.`);
+                        }}
+                    >
+                        <div>
+                            <div><strong>${m.label}</strong> ${current === m.id ? "✓" : ""}</div>
+                            <div class="muted small">${m.desc}</div>
+                        </div>
+                    </button>`,
+            )}
         </div>
     <//>`;
 }

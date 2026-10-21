@@ -297,6 +297,29 @@ const COMMANDS = [
                 : actions.configure({ cwd: pathFrom(arg) }),
     },
     {
+        name: "ponytail",
+        args: "[off|lite|full|ultra]",
+        description: "Set or show Ponytail mode (off, lite, full, ultra)",
+        run: async (arg) => {
+            const current = store.state.server?.ponytailMode ?? "full";
+
+            if (arg === "") {
+                return openSheet({ type: "ponytail" });
+            }
+
+            const mode = arg.toLowerCase().trim();
+
+            if (!["off", "lite", "full", "ultra"].includes(mode)) {
+                throw new Error(
+                    "Use /ponytail off, /ponytail lite, /ponytail full, or /ponytail ultra.",
+                );
+            }
+
+            await actions.setPonytailMode(mode);
+            notify("info", `Ponytail mode set to ${mode}.`);
+        },
+    },
+    {
         name: "plan",
         description: "Plan mode on or off: Pi reads and proposes, and changes nothing",
         available: () => planAvailable() && isSession(),

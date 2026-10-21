@@ -712,6 +712,28 @@ export class Commands {
 
         const conversation = await app.conversation(id);
         const typed = request.text.trim();
+
+        if (typed === "/ponytail" || typed.startsWith("/ponytail ")) {
+            const arg = typed.slice(9).trim().toLowerCase();
+
+            if (arg === "" || ["off", "lite", "full", "ultra"].includes(arg)) {
+                if (arg !== "") {
+                    await app.setPonytailMode(user, arg as any);
+                    await app.collab.activity(id, user, `switched Ponytail mode to ${arg}`);
+                } else {
+                    const current = app.config.ponytailMode;
+
+                    await app.collab.activity(id, user, `Ponytail mode is '${current}'`);
+                }
+
+                const current = app.config.ponytailMode;
+
+                await this.note(id, user, `Ponytail mode is '${current}'.`);
+
+                return { submissionId: 0 as SubmissionId, requestId: randomUUID() };
+            }
+        }
+
         // `/skill:name request` sends the skill with the request; `/name arguments`, Pi's prompt template of that name.
         const text = typed.startsWith("/skill:")
             ? (expandSkillCommand(typed, app.skillCommands(id)) ?? typed)
@@ -1371,6 +1393,11 @@ export class Commands {
                 ? "cleared the instructions for Pi"
                 : "changed the instructions for Pi",
         );
+    }
+
+    /** Set Ponytail mode ('off' | 'lite' | 'full' | 'ultra'). */
+    async setPonytailMode(user: User, mode: unknown): Promise<void> {
+        await this.#app.setPonytailMode(user, mode);
     }
 
     /** Turn plan mode on or off: while it is on, Pi reads and proposes a plan, and anything that changes something is blocked. */

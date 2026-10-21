@@ -1110,6 +1110,7 @@ export const actions = {
         api(`c/${current()}/fork`, { entryId, ...(worktree ? { worktree } : {}) }),
     /** Send a message to Pi again in a fork that ends just before it: `{ text }` edits it, `{ model }` picks another model. */
     resend: (entryId, change = {}) => api(`c/${current()}/resend`, { entryId, ...change }),
+    setPonytailMode: (mode) => api("settings", { ponytailMode: mode }),
     setUsageResume: (on) => api(`c/${current()}/usage-resume`, { on }),
     setPlan: (on) => api(`c/${current()}/plan`, { on }),
     approvePlan: () => api(`c/${current()}/plan`, { approve: true }),

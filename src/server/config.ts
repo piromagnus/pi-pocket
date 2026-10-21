@@ -82,6 +82,7 @@ interface PocketConfig {
      * Absent or empty: none, and subagents always run on their session's model.
      */
     subagentModels?: string[];
+    ponytailMode?: "off" | "lite" | "full" | "ultra";
 }
 
 /** Who may allow a risky tool call: anyone who can steer, or (for guests) only someone other than who asked. */
@@ -225,6 +226,15 @@ export class ConfigStore {
             this.#config.approvals = rule;
         }
 
+        this.save();
+    }
+
+    get ponytailMode(): "off" | "lite" | "full" | "ultra" {
+        return this.#config.ponytailMode ?? "full";
+    }
+
+    setPonytailMode(mode: "off" | "lite" | "full" | "ultra"): void {
+        this.#config.ponytailMode = mode;
         this.save();
     }
 

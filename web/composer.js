@@ -1488,6 +1488,26 @@ defineItem("composer", {
             Plan
         </button>`,
 });
+defineItem("composer", {
+    id: "core:ponytail",
+    label: "Ponytail",
+    order: 450,
+    render: () => {
+        const server = store.state.server;
+        const modes = ["off", "lite", "full", "ultra"];
+        const current = server?.ponytailMode ?? "full";
+        const next = modes[(modes.indexOf(current) + 1) % modes.length];
+
+        return html`<button
+            class=${`chip toggle ${server?.ponytailMode && server.ponytailMode !== "off" ? "on" : ""}`}
+            title=${`Ponytail mode (${server?.ponytailMode ?? "full"}): click to cycle off, lite, full, ultra`}
+            onMouseDown=${(event) => event.preventDefault()}
+            onClick=${() => attempt(() => actions.setPonytailMode(next))}
+        >
+            ✂ ${server?.ponytailMode ?? "full"}
+        </button>`;
+    },
+});
 
 /**
  * The message box grows with what is written, to 40% of the screen; its least height (two lines, or one on a short

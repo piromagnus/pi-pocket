@@ -138,7 +138,10 @@ function localEndpoint(value: string): string {
 
 const googleModels = googleProvider().getModels();
 
-const antGravityCatalog: Record<string, Pick<BridgeModel, "contextWindow" | "maxTokens" | "input">> = {
+const antGravityCatalog: Record<
+    string,
+    Pick<BridgeModel, "contextWindow" | "maxTokens" | "input">
+> = {
     "gemini-4-argon-high": {
         contextWindow: 1048576,
         maxTokens: 1048576,

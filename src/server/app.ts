@@ -1795,6 +1795,7 @@ export class PocketApp {
                 collab: 2,
                 reactions: REACTIONS,
                 approvalRule: this.config.approvalRule,
+                ponytailMode: this.config.ponytailMode,
                 // The model and thinking level new sessions start with, or null for the last one picked.
                 defaultModel: this.config.defaultModel ?? null,
                 // The theme and colors of browsers that have not chosen their own, or null for the app's own.
@@ -2565,6 +2566,20 @@ export class PocketApp {
     }
 
     /** The owner changes who may allow risky calls. */
+    async setPonytailMode(user: User, mode: unknown): Promise<void> {
+        if (mode !== "off" && mode !== "lite" && mode !== "full" && mode !== "ultra") {
+            throw new HttpError(400, "ponytailMode must be off, lite, full, or ultra");
+        }
+
+        if (mode === this.config.ponytailMode) {
+            return;
+        }
+
+        this.config.setPonytailMode(mode);
+        await this.#refreshClients();
+        this.notice("info", `Ponytail mode switched to '${mode}'.`);
+    }
+
     async setApprovalRule(user: User, rule: unknown): Promise<void> {
         if (user.role !== "owner") {
             throw new HttpError(403, "Only the owner can do that");

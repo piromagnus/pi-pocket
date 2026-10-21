@@ -96,7 +96,6 @@ The full tour. For setup, see the [README](../README.md).
 - **Images inline.** Attached images show as thumbnails (also in the composer before you send). When Pi writes `![description](path)` with a path on the server (absolute, `~/…`, or relative to the session's folder), the image shows in its reply. Images a tool returns and SVG artifacts show inline too. Tap any image to see it full screen. Only real image files are shown: the server checks a file's bytes, not just its name.
 - **Launcher.** `npm start` asks how your devices should reach Pi Pocket: this device only, the local network, a Cloudflare Tunnel, or Tailscale. It then shows the address and a QR code to sign in your phone, and keeps running with keys to restart the server or change access.
 
-
 ## Local additions retained in this installation
 
 - **Claude Bridge and Google subscription bridge.** The owner-installed [Claude Bridge](claude-bridge.md) and [Gemini bridge](gemini-bridge.md) remain available, with tools executed by Pocket. The Gemini bridge keeps the locally added Antigravity model catalogue, including advertised Argon and Claude models. Provider eligibility and billing safeguards remain those documented for each bridge.
