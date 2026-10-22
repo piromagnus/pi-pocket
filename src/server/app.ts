@@ -97,6 +97,7 @@ import { THEME_ID } from "./themes/format.ts";
 import { measureModelStreams } from "./timing.ts";
 import { ProviderLimits, recordResponses } from "./provider-limits.ts";
 import { Providers } from "./providers.ts";
+import { WebAccessManager } from "./web-access.ts";
 import { PushStore } from "./push.ts";
 import { type ExtensionInfo, ExtensionLoader, linkTypes, prepareDropInFolder } from "./reload.ts";
 import { ResendTask } from "./resend.ts";
@@ -277,6 +278,7 @@ export class PocketApp {
     readonly collab = new Collab(this);
     readonly alerts = new Alerts(this);
     readonly providers = new Providers(this);
+    readonly webAccess = new WebAccessManager();
     readonly schedules = new Schedules(this);
     readonly usageResumes = new UsageResumes(this);
     readonly goals = new Goals(this);

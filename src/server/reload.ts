@@ -69,6 +69,7 @@ const ORDER = [
     "pip.ts",
     "triggers.ts",
     "gallery.ts",
+    "web-access.ts",
 ];
 
 /** The built-in modules' names (their files' without `.ts`): a drop-in with one of them is never loaded. */

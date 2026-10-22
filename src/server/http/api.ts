@@ -724,6 +724,74 @@ export function createApi(options: HttpOptions, auth: Auth) {
             return json(response, 200, { ok: true });
         }
 
+        if (first === "web-access" && second === undefined && method === "GET") {
+            return json(response, 200, await app.webAccess.getState());
+        }
+
+        if (first === "web-access" && second === undefined && method === "POST") {
+            requireOwner(user);
+            const body = await readJson<{
+                primaryProvider?: string;
+                providerOrder?: string[];
+                apiKey?: { provider: string; key: string };
+                enabled?: boolean;
+                maxResults?: number;
+            }>(request);
+
+            if (body.apiKey) {
+                await app.webAccess.setApiKey(body.apiKey.provider, body.apiKey.key);
+            }
+
+            if (
+                body.primaryProvider ||
+                body.providerOrder ||
+                body.enabled !== undefined ||
+                body.maxResults !== undefined
+            ) {
+                await app.webAccess.saveConfig({
+                    ...(body.primaryProvider ? { provider: body.primaryProvider } : {}),
+                    ...(body.providerOrder
+                        ? { searchRouting: { providers: body.providerOrder } }
+                        : {}),
+                    ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+                    ...(body.maxResults !== undefined ? { maxResults: body.maxResults } : {}),
+                });
+            }
+
+            return json(response, 200, await app.webAccess.getState());
+        }
+
+        if (first === "web-access" && second === "test" && method === "POST") {
+            requireOwner(user);
+            const body = await readJson<{ provider: string; apiKey?: string }>(request);
+
+            if (!body.provider) {
+                throw new HttpError(400, "Provider is required");
+            }
+
+            const result = await app.webAccess.testConnection(body.provider, body.apiKey);
+
+            return json(response, 200, result);
+        }
+
+        if (first === "web-access" && second === "search" && method === "POST") {
+            const body = await readJson<{ query: string; provider?: string; numResults?: number }>(
+                request,
+            );
+
+            if (!body.query?.trim()) {
+                throw new HttpError(400, "Query is required");
+            }
+
+            const result = await app.webAccess.search(
+                body.query.trim(),
+                body.provider,
+                body.numResults,
+            );
+
+            return json(response, 200, result);
+        }
+
         if (first === "auth" && second !== undefined && third === "cancel" && method === "POST") {
             app.providers.cancelLogin(user, second);
 
