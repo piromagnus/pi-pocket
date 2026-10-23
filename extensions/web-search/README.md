@@ -11,7 +11,10 @@ it is unavailable. There is no fallback to unrestricted network access.
 
 ## Install
 
-From this directory, copy the entry point and its companion directory into your
+In Pi Pocket, open **Menu → Extensions → Find extensions**, find **Web search** and
+install it from the extension gallery, then enable it. Drop-ins start disabled.
+
+Or install manually: copy the entry point and its companion directory into your
 Pi Pocket drop-in directory (normally `~/.pi-pocket/extensions`):
 
 ```sh
@@ -41,16 +44,30 @@ Each tier has an editable, ordered provider/mode list. Failure falls through onl
 within that list. There is no automatic escalation to a more expensive tier;
 select another tier or explicitly override the provider/mode when needed.
 
-- Quick starts with Brave, then Exa lite, Tavily fast and DuckDuckGo.
-- Standard starts with Exa auto, then Tavily basic, Brave and DuckDuckGo.
-- Deep starts with Exa deep, then Tavily advanced.
+- Quick starts with Brave, then Exa lite, Tavily fast, DonSeTch and DuckDuckGo.
+- Standard starts with Exa auto, then Tavily basic, Brave, DonSeTch and DuckDuckGo.
+- Deep starts with Exa deep, then Tavily advanced and DonSeTch.
 
 Unconfigured providers are skipped. Settings include Exa lite/auto/deep-lite/deep,
 Tavily search depth, extraction, crawl and research options, per-provider enabled
-operations, extraction order and result limits. Crawl and research require Tavily.
-OpenAI is an optional **synthesis** provider, not a live web search source, and is
-excluded from the default tier lists. Starting research is not replay-safe and is
-not automatically retried; polling its saved job ID is separate.
+operations, extraction order and result limits. Crawl and research require Tavily;
+DonSeTch can also crawl, keyless. OpenAI is an optional **synthesis** provider, not a
+live web search source, and is excluded from the default tier lists. Starting research
+is not replay-safe and is not automatically retried; polling its saved job ID is separate.
+
+### DonSeTch (optional local binary)
+
+`donsetch` is a keyless provider: search fused across 10+ engines, a stealth fetch
+that can read bot-walled pages and PDFs, and a same-domain crawl. It runs through
+the local [`donsetch`](https://github.com/dondai44423/donsetch) binary — install it
+with `npm install -g donsetch` or point `DONSETCH_BINARY` at it. Without the binary,
+every DonSeTch route is skipped with a recorded attempt and the chain falls through.
+The child process receives only `PATH`/`HOME`/locale/proxy/`DONSETCH_*` environment
+variables — no provider keys. Its requests are not routed through `host.fetchPublic`;
+DonSeTch applies its own URL safety guards. In extraction order it is the last resort
+after direct, Tavily and Exa, exactly where bot walls break the other three.
+shortcut: the CLI `--json` envelope is validated against DonSeTch 4.10.x; DonSeTch V5
+may change it — rerun the tests and one live call after a major DonSeTch release.
 
 ## Data, keys and network access
 
@@ -73,6 +90,10 @@ The following services can be contacted when selected or tested:
 - `api.openai.com`: API key, selected model and a prompt containing the query for
   synthesis; a connection test requests the model list.
 - `html.duckduckgo.com`: search query, without an API key.
+- DonSeTch binary (when installed): search queries and fetch/crawl URLs. It contacts
+  its own keyless search engines (Google, Bing, Brave, DuckDuckGo, Yahoo, Mojeek and
+  verticals like GitHub, Wikipedia, HN, arXiv, Stack Exchange, MDN) and the target
+  hosts you ask it to fetch or crawl. No key from this extension is passed to it.
 - User/agent-supplied public target hosts: a `GET` for direct content extraction,
   or a validation `HEAD` before delegating a URL to Tavily/Exa. Direct redirects
   may contact further public hosts. No provider key is sent to these hosts.

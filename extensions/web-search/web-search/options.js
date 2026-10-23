@@ -231,7 +231,7 @@ export default function createOptions({ html, useState }) {
             <${RouteEditor}
                 label="extraction"
                 routes=${data.extractOrder.map((provider) => ({ provider }))}
-                providers=${["direct", "tavily", "exa"]}
+                providers=${["direct", "tavily", "exa", "donsetch"]}
                 disabled=${disabled}
                 onChange=${(next) => save({ extractOrder: [...new Set(next.map((r) => r.provider))] })}
             />

@@ -1,6 +1,9 @@
 /**
- * Configurable web search, public-page extraction, crawl and research with tiered fallback and observed request usage.
- * Requires Pi Pocket 0.20.0 and its experimental host.fetchPublic API. Keys and settings belong to this extension.
+ * Configurable web search, public-page extraction, crawl and research with tiered provider fallback and observed request
+ * usage. Needs Pi Pocket 0.20.0+ and its experimental host.fetchPublic API. Sends queries and API keys to
+ * api.tavily.com, api.exa.ai, api.search.brave.com, google.serper.dev and api.openai.com, keyless queries to
+ * html.duckduckgo.com, and requests the public URLs you give it; if installed, runs the local donsetch binary, which
+ * contacts its own engines. Keys and settings stay in this module's own data.
  */
 import { join } from "node:path";
 import type { Host, Web } from "./_pocket.d.ts";

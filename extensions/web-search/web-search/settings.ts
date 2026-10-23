@@ -15,6 +15,7 @@ export const SEARCH_MODES: Record<string, string[]> = {
     brave: [],
     serper: [],
     openai: [],
+    donsetch: [],
     duckduckgo: [],
 };
 export const CAPABILITIES: Record<string, WebOperation[]> = {
@@ -23,6 +24,7 @@ export const CAPABILITIES: Record<string, WebOperation[]> = {
     brave: ["search"],
     serper: ["search"],
     openai: ["search"],
+    donsetch: ["search", "extract", "crawl"],
     duckduckgo: ["search"],
     direct: ["extract"],
 };
@@ -31,17 +33,20 @@ export const DEFAULT_TIERS: TierRouting = {
         { provider: "brave" },
         { provider: "exa", mode: "lite" },
         { provider: "tavily", mode: "fast" },
+        { provider: "donsetch" },
         { provider: "duckduckgo" },
     ],
     standard: [
         { provider: "exa", mode: "auto" },
         { provider: "tavily", mode: "basic" },
         { provider: "brave" },
+        { provider: "donsetch" },
         { provider: "duckduckgo" },
     ],
     deep: [
         { provider: "exa", mode: "deep" },
         { provider: "tavily", mode: "advanced" },
+        { provider: "donsetch" },
     ],
 };
 
@@ -300,13 +305,13 @@ export function validateWebSettings(config: {
         config.extractOrder !== undefined &&
         (!Array.isArray(config.extractOrder) ||
             config.extractOrder.length < 1 ||
-            config.extractOrder.length > 3 ||
+            config.extractOrder.length > 4 ||
             config.extractOrder.some(
                 (p) => !Object.hasOwn(CAPABILITIES, p) || !CAPABILITIES[p]?.includes("extract"),
             ) ||
             new Set(config.extractOrder).size !== config.extractOrder.length)
     ) {
-        invalidWeb("Extraction order must contain unique direct, tavily, or exa entries");
+        invalidWeb("Extraction order must contain unique direct, tavily, exa, or donsetch entries");
     }
 
     if (config.operations !== undefined) {

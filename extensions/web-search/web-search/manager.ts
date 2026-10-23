@@ -1,6 +1,6 @@
 /**
  * Web Access & Search manager for Pi Pocket.
- * Coordinates web search providers (Tavily, Exa, Brave, Serper, OpenAI, DuckDuckGo),
+ * Coordinates web search providers (Tavily, Exa, Brave, Serper, OpenAI, DonSeTch, DuckDuckGo),
  * keeps its own API keys, settings, and request ledger below host.dataDir,
  * tests connectivity, and executes live searches and web fetches.
  */
@@ -30,6 +30,7 @@ import {
     type UsageCounter,
     type WebUsage,
 } from "./storage.ts";
+import { donsetchCrawl, donsetchFetch, donsetchSearch, runDonsetch } from "./donsetch.ts";
 
 export interface SearchResult {
     title: string;
@@ -144,9 +145,17 @@ const PROVIDER_METADATA: Record<
         website: "https://duckduckgo.com",
         apiKeyRequired: false,
     },
+    donsetch: {
+        name: "DonSeTch (Local binary)",
+        description:
+            "Keyless search across 10+ engines, stealth fetch and same-domain crawl through the local donsetch binary (npm install -g donsetch).",
+        website: "https://github.com/dondai44423/donsetch",
+        apiKeyRequired: false,
+    },
 };
 
-const ALL_PROVIDER_IDS = ["tavily", "exa", "brave", "serper", "openai", "duckduckgo"];
+const ALL_PROVIDER_IDS = ["tavily", "exa", "brave", "serper", "openai", "donsetch", "duckduckgo"];
+const EXTRACT_ORDER = ["direct", "tavily", "exa", "donsetch"];
 
 function maskKey(key: string): string {
     if (!key || key.length < 8) {
@@ -198,7 +207,7 @@ export class WebAccessManager {
             enabled: true,
             provider: "tavily",
             searchRouting: {
-                providers: ["tavily", "exa", "brave", "serper", "openai", "duckduckgo"],
+                providers: ["tavily", "exa", "brave", "serper", "openai", "donsetch", "duckduckgo"],
                 fallbackOn: ["transient", "quota", "network", "invalid-response"],
             },
             maxResults: 5,
@@ -272,7 +281,7 @@ export class WebAccessManager {
             providers,
             tierRouting: this.#tiers(config),
             tierRoutingEnabled: Boolean(config.tierRouting),
-            extractOrder: config.extractOrder ?? ["direct", "tavily", "exa"],
+            extractOrder: config.extractOrder ?? EXTRACT_ORDER,
             providerSettings: Object.fromEntries(
                 Object.keys(SETTING_FIELDS).map((p) => [
                     p,
@@ -457,6 +466,12 @@ export class WebAccessManager {
                     if (!res.ok && res.status !== 200) {
                         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
                     }
+
+                    break;
+                }
+
+                case "donsetch": {
+                    await runDonsetch(["version"], { timeoutMs: 8000 });
 
                     break;
                 }
@@ -817,9 +832,62 @@ export class WebAccessManager {
                 return { provider: "duckduckgo", query, results };
             }
 
+            case "donsetch": {
+                await this.#countLocal(
+                    { provider, operation: "search", mode: "keyless", purpose },
+                    "request",
+                    fallback,
+                );
+
+                try {
+                    const results = await donsetchSearch(query, maxResults, {
+                        signal: this.#alive.signal,
+                    });
+
+                    await this.#countLocal(
+                        { provider, operation: "search", mode: "keyless", purpose },
+                        "success",
+                        fallback,
+                    );
+
+                    return { provider: "donsetch", query, results };
+                } catch (error) {
+                    await this.#countLocal(
+                        { provider, operation: "search", mode: "keyless", purpose },
+                        "failure",
+                        fallback,
+                    );
+
+                    throw error;
+                }
+            }
+
             default:
                 throw new Error(`Unknown provider: ${provider}`);
         }
+    }
+
+    // DonSeTch calls bypass #request (they run in a local binary, not via fetchPublic),
+    // so they get their own ledger entries with the same shape.
+    async #countLocal(
+        info: Pick<UsageCounter, "provider" | "operation" | "mode" | "purpose">,
+        outcome: "request" | "success" | "failure",
+        fallback = false,
+    ): Promise<void> {
+        const date = new Date().toISOString().slice(0, 10);
+
+        await updateWebFile(this.#usagePath, emptyWebUsage(), (usage) =>
+            incrementUsage(
+                usage,
+                info,
+                outcome === "request"
+                    ? { requests: 1, fallback: fallback ? 1 : 0 }
+                    : outcome === "success"
+                      ? { successes: 1, fallback: fallback ? 1 : 0 }
+                      : { failures: 1, fallback: fallback ? 1 : 0 },
+                date,
+            ),
+        );
     }
 
     #tiers(config: WebSearchConfig): TierRouting {
@@ -959,9 +1027,7 @@ export class WebAccessManager {
         }
 
         const order =
-            provider && provider !== "auto"
-                ? [provider]
-                : (config.extractOrder ?? ["direct", "tavily", "exa"]);
+            provider && provider !== "auto" ? [provider] : (config.extractOrder ?? EXTRACT_ORDER);
         const errors: string[] = [];
         let sent = 0;
 
@@ -973,7 +1039,7 @@ export class WebAccessManager {
 
             const { key } = await this.resolveKey(pid);
 
-            if (pid !== "direct" && !key) {
+            if (pid !== "direct" && pid !== "donsetch" && !key) {
                 errors.push(`${pid}: missing key`);
                 continue;
             }
@@ -1003,6 +1069,20 @@ export class WebAccessManager {
                     );
 
                     cleaned = cleanHtml(await response.text());
+                } else if (pid === "donsetch") {
+                    await this.#countLocal({ ...info, mode: "stealth" }, "request", fallback);
+
+                    try {
+                        // donsetch carries its own SSRF and bot-wall handling; no pre-check needed.
+                        cleaned = await donsetchFetch(url, maxChars, {
+                            signal: this.#alive.signal,
+                        });
+                        await this.#countLocal({ ...info, mode: "stealth" }, "success", fallback);
+                    } catch (error) {
+                        await this.#countLocal({ ...info, mode: "stealth" }, "failure", fallback);
+
+                        throw error;
+                    }
                 } else {
                     await this.#checkPublicTarget(parsed.toString());
                     const tavily = pid === "tavily";
@@ -1107,24 +1187,56 @@ export class WebAccessManager {
         await response.body?.cancel();
     }
 
-    async crawl(url: string, instructions?: string) {
+    async crawl(url: string, instructions?: string, provider = "tavily") {
         this.#publicUrl(url);
 
         if (instructions !== undefined && typeof instructions !== "string") {
             invalidWeb("Crawl instructions must be text");
         }
 
-        const settings = settingsFor((await this.loadConfig()).providerSettings, "tavily");
+        if (provider !== "tavily" && provider !== "donsetch") {
+            invalidWeb("Unsupported crawl provider");
+        }
 
         const config = await this.loadConfig();
 
-        if (!this.#available(config, "tavily", "crawl")) {
-            invalidWeb("Tavily crawl is disabled");
+        if (!this.#available(config, provider, "crawl")) {
+            invalidWeb(`${provider} crawl is disabled`);
+        }
+
+        if (provider === "donsetch") {
+            // Keyless local binary: same-domain best-first crawl, instructions rank the frontier.
+            await this.#countLocal(
+                { provider, operation: "crawl", mode: "keyless", purpose: "tool" },
+                "request",
+            );
+
+            try {
+                const envelope = await donsetchCrawl(url, {
+                    topic: instructions,
+                    signal: this.#alive.signal,
+                });
+                await this.#countLocal(
+                    { provider, operation: "crawl", mode: "keyless", purpose: "tool" },
+                    "success",
+                );
+
+                return envelope;
+            } catch (error) {
+                await this.#countLocal(
+                    { provider, operation: "crawl", mode: "keyless", purpose: "tool" },
+                    "failure",
+                );
+
+                throw error;
+            }
         }
 
         if (!(await this.resolveKey("tavily")).key) {
             invalidWeb("No API key configured for Tavily");
         }
+
+        const settings = settingsFor(config.providerSettings, "tavily");
 
         await this.#checkPublicTarget(url);
 
