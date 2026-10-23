@@ -16,7 +16,8 @@ Pi Pocket is often edited from inside itself, while it runs. [docs/map.md](docs/
 ## Trail — repo context graph
 
 This repo is indexed in `.trail/cache/`: small linked markdown nodes that explain each
-system and carry exact file:line spans, kept in sync with the code through git.
+system and carry exact file:line spans, kept in sync with the code through `trail build`.
+The `.trail/` directory stays local: it is gitignored, never committed or pushed (for now).
 
 For ANY task here — understanding how something works, finding where code lives,
 or scoping a change — get context from the graph before grepping or opening
