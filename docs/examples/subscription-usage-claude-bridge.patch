@@ -1,0 +1,370 @@
+--- a/subscription-usage.ts
++++ b/subscription-usage.ts
+@@ -4,7 +4,9 @@
+  * or token reaches the browser.
+  */
+ import { type ChildProcess, spawn } from "node:child_process";
++import { readFile } from "node:fs/promises";
+ import { homedir } from "node:os";
++import { join } from "node:path";
+ import { createInterface } from "node:readline";
+ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+ // A type import is gone when the module runs: only the type checker reads this path.
+@@ -261,8 +263,8 @@
+ export default function createSubscriptionUsage(_host: unknown, web: ExtensionWeb) {
+     // Pi's own models and sign-ins: `getAuth` renews an expiring subscription token under Pi's lock, as Pi does.
+     let runtime: Promise<ModelRuntime> | undefined;
+-    let last: { at: number; reports: Report[] } | undefined;
+-    let pending: Promise<{ at: number; reports: Report[] }> | undefined;
++    const last = new Map<string, { at: number; reports: Report[] }>();
++    const pending = new Map<string, Promise<{ at: number; reports: Report[] }>>();
+     // Turning the module off, or a new version of it, stops the reads still running, and Codex with them: the module
+     // is gone once every Codex it started ended (one that ignores being asked to stop is killed after 2 s).
+     const alive = new AbortController();
+@@ -304,18 +306,66 @@
+         return key;
+     };
+ 
+-    async function claude(signal: AbortSignal): Promise<Report> {
+-        const name = "Claude (Anthropic)";
++    async function bridgeCredential(signal: AbortSignal): Promise<string> {
++        // shortcut: Claude Code file credentials only; add OS keychain support if needed on macOS.
++        let oauth: { accessToken?: unknown; expiresAt?: unknown } | undefined;
+ 
+         try {
+-            const token = await credential("anthropic", signal);
++            const file = join(
++                process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
++                ".credentials.json",
++            );
++            oauth = JSON.parse(await readFile(file, { encoding: "utf8", signal })).claudeAiOauth;
++        } catch {
++            if (signal.aborted) {
++                throw signal.reason;
++            }
++
++            throw new Said(
++                "Claude Bridge needs a Claude Code subscription sign-in. Run claude auth login on the server.",
++            );
++        }
++
++        if (typeof oauth?.accessToken !== "string" || !oauth.accessToken.trim()) {
++            throw new Said(
++                "Claude Bridge has no Claude Code subscription token. Run claude auth login on the server.",
++            );
++        }
++
++        if (typeof oauth.expiresAt === "number" && oauth.expiresAt <= Date.now()) {
++            throw new Said(
++                "Claude Bridge's Claude Code sign-in has expired. Refresh it in Claude Code or run claude auth login on the server.",
++            );
++        }
++
++        return oauth.accessToken;
++    }
++
++    async function claude(signal: AbortSignal, source: string): Promise<Report> {
++        const bridge = source === "bridge";
++        const id = bridge ? "claude-bridge" : "anthropic";
++        const name = bridge ? "Claude Bridge (Claude Code)" : "Claude (Anthropic)";
++
++        try {
++            const token = bridge
++                ? await bridgeCredential(signal)
++                : await credential("anthropic", signal);
+             const response = await fetch("https://api.anthropic.com/api/oauth/usage", {
+-                headers: { authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20" },
++                headers: {
++                    authorization: `Bearer ${token}`,
++                    "anthropic-beta": "oauth-2025-04-20",
++                },
+                 redirect: "error",
+                 signal,
+             });
+ 
+             if (!response.ok) {
++                if (bridge && (response.status === 401 || response.status === 403)) {
++                    throw new Said(
++                        `Claude Code refused the sign-in (${response.status}). Refresh it in Claude Code or run claude auth login on the server.`,
++                    );
++                }
++
+                 throw answered(response.status);
+             }
+ 
+@@ -362,18 +412,21 @@
+             }
+ 
+             return {
+-                id: "anthropic",
++                id,
+                 name,
+                 ok: true,
+                 limits,
+                 notes: [
++                    ...(bridge
++                        ? ["Uses Claude Code's subscription sign-in for Claude Bridge."]
++                        : []),
+                     data.extra_usage?.is_enabled === true
+                         ? "Extra usage is on."
+                         : "Extra usage is off.",
+                 ],
+             };
+         } catch (error) {
+-            return { id: "anthropic", name, ok: false, error: failed(error) };
++            return { id, name, ok: false, error: failed(error) };
+         }
+     }
+ 
+@@ -493,31 +546,43 @@
+     }
+ 
+     /** Every service at once, each on its own: one that fails leaves the others' answers. */
+-    const read = async () => {
++    const read = async (source: string) => {
+         const signal = AbortSignal.any([AbortSignal.timeout(TIMEOUT_MS), alive.signal]);
+-        const reports = await Promise.all([claude(signal), chatGpt(signal), openCodeGo(signal)]);
++        const reports = await Promise.all([
++            claude(signal, source),
++            chatGpt(signal),
++            openCodeGo(signal),
++        ]);
+ 
+-        last = { at: Date.now(), reports };
++        const result = { at: Date.now(), reports };
++        last.set(source, result);
+ 
+-        return last;
++        return result;
+     };
+ 
+     // GET /api/x/subscription-usage/usage, and ?fresh=1 to ask again now. The owner's alone (the default).
+     web.route("GET", "usage", ({ query }) => {
+-        const age = last === undefined ? Infinity : Date.now() - last.at;
++        const source = query.get("claude") === "bridge" ? "bridge" : "pi";
++        const cached = last.get(source);
++        const age = cached === undefined ? Infinity : Date.now() - cached.at;
+ 
+         if (
+-            last !== undefined &&
++            cached !== undefined &&
+             (age < MIN_GAP_MS || (query.get("fresh") !== "1" && age < FRESH_MS))
+         ) {
+-            return last;
++            return cached;
+         }
+ 
+-        pending ??= read().finally(() => {
+-            pending = undefined;
+-        });
++        if (!pending.has(source)) {
++            pending.set(
++                source,
++                read(source).finally(() => {
++                    pending.delete(source);
++                }),
++            );
++        }
+ 
+-        return pending;
++        return pending.get(source)!;
+     });
+     web.client("subscription-usage");
+ }
+--- a/subscription-usage/index.js
++++ b/subscription-usage/index.js
+@@ -12,6 +12,15 @@
+ /** How often the page reads again while it shows, and the rail's badge in the background. */
+ const PAGE_EVERY_MS = 60_000;
+ const BADGE_EVERY_MS = 5 * 60_000;
++const CLAUDE_SOURCE_KEY = "pocket.subscription-usage.claude-source";
++
++function savedClaudeSource() {
++    try {
++        return localStorage.getItem(CLAUDE_SOURCE_KEY) === "bridge" ? "bridge" : "pi";
++    } catch {
++        return "pi";
++    }
++}
+ /** A reset further away than this shows its date, not only its weekday. */
+ const NEAR_MS = 6 * 86_400_000;
+ /** The words for a level that needs a look, shown in the limit's line of details. An "ok" level has none. */
+@@ -102,7 +111,7 @@
+ }
+ 
+ export default function setup(pocket) {
+-    const { html, useEffect, useState, Icon, Loader, Spinner } = pocket;
++    const { html, useEffect, useState, useRef, Icon, Loader, Spinner } = pocket;
+ 
+     pocket.style("look.css");
+ 
+@@ -204,46 +213,82 @@
+ 
+     /** The page: loading, then one list of plans, or what went wrong, with Refresh. Reads again every minute. */
+     function Usage() {
++        const [source, setSource] = useState(savedClaudeSource);
++        const revision = useRef(0);
+         const [data, setData] = useState(null);
+         const [error, setError] = useState(null);
+         const [busy, setBusy] = useState(false);
+ 
+         const load = async (fresh, signal) => {
++            const version = ++revision.current;
+             setBusy(true);
+ 
+             try {
+-                const next = await pocket.api(`usage${fresh ? "?fresh=1" : ""}`, undefined, {
+-                    signal,
+-                });
++                const next = await pocket.api(
++                    `usage?claude=${source}${fresh ? "&fresh=1" : ""}`,
++                    undefined,
++                    {
++                        signal,
++                    },
++                );
++
++                if (signal?.aborted || version !== revision.current) {
++                    return;
++                }
+ 
+                 setData(next);
+                 setError(null);
+                 badge(next);
+             } catch (failure) {
+-                if (!signal?.aborted) {
++                if (!signal?.aborted && version === revision.current) {
+                     setError(failure.message);
+                 }
+             } finally {
+-                if (!signal?.aborted) {
++                if (!signal?.aborted && version === revision.current) {
+                     setBusy(false);
+                 }
+             }
+         };
+ 
+         useEffect(() => {
++            setData(null);
++            setError(null);
+             const stop = new AbortController();
+ 
+             void load(false, stop.signal);
+             const timer = setInterval(() => void load(false, stop.signal), PAGE_EVERY_MS);
+ 
+             return () => {
++                revision.current++;
+                 stop.abort();
+                 clearInterval(timer);
+             };
+-        }, []);
++        }, [source]);
++
++        const chooseSource = (event) => {
++            const next = event.currentTarget.value;
++            revision.current++;
++
++            try {
++                localStorage.setItem(CLAUDE_SOURCE_KEY, next);
++            } catch {
++                // The selection still works when browser storage is unavailable.
++            }
++
++            setSource(next);
++        };
++
++        const sourceControl = html`<label class="su-source">
++            <span>Claude sign-in</span>
++            <select value=${source} onChange=${chooseSource}>
++                <option value="pi">Pi (Anthropic)</option>
++                <option value="bridge">Claude Bridge (Claude Code)</option>
++            </select>
++        </label>`;
+ 
+         if (!data && error) {
+             return html`<div class="su">
++                ${sourceControl}
+                 <div class="su-state" role="alert">
+                     <${Icon} path=${ALERT} size=${16} />
+                     <div class="su-state-text">
+@@ -265,16 +310,21 @@
+ 
+         if (!data) {
+             return html`<div class="su" aria-busy="true">
++                ${sourceControl}
+                 <${Loader} label="Asking Claude, ChatGPT, and OpenCode Go" />
+             </div>`;
+         }
+ 
+         const read = new Date(data.at);
+-        const stamp = read.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
++        const stamp = read.toLocaleTimeString(undefined, {
++            hour: "numeric",
++            minute: "2-digit",
++        });
+         const iso = Number.isFinite(read.getTime()) ? read.toISOString() : undefined;
+         const { top, next } = glance(data);
+ 
+         return html`<div class="su" aria-busy=${busy ? "true" : undefined}>
++            ${sourceControl}
+             <div class="su-fetch">
+                 <pre class="su-glyph" aria-hidden="true">${GLYPH}</pre>
+                 <div class="su-info">
+@@ -371,6 +421,7 @@
+         keywords: [
+             "anthropic",
+             "claude",
++            "claude-bridge",
+             "openai",
+             "chatgpt",
+             "codex",
+@@ -383,17 +434,22 @@
+     });
+ 
+     // A reading in the background for the badge, while this tab is open; the server keeps answers a minute.
+-    const check = () =>
+-        pocket.api("usage").then(
++    const check = () => {
++        const source = savedClaudeSource();
++
++        return pocket.api(`usage?claude=${source}`).then(
+             (data) => {
+                 try {
+-                    badge(data);
++                    if (source === savedClaudeSource()) {
++                        badge(data);
++                    }
+                 } catch {
+                     // A badge that cannot be drawn waits for the next reading.
+                 }
+             },
+             () => {},
+         );
++    };
+     const timer = setInterval(check, BADGE_EVERY_MS);
+ 
+     void check();
+--- a/subscription-usage/look.css
++++ b/subscription-usage/look.css
+@@ -77,6 +77,21 @@
+     cursor: progress;
+ }
+ 
++.su-source {
++    display: flex;
++    flex-wrap: wrap;
++    align-items: center;
++    gap: 8px;
++    margin-bottom: 16px;
++    font-size: 13px;
++}
++
++.su-source select {
++    min-width: 0;
++    max-width: 100%;
++    min-height: 40px;
++}
++
+ .su-spin {
+     display: inline-flex;
+ }

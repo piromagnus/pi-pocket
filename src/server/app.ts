@@ -103,7 +103,6 @@ import { type ExtensionInfo, ExtensionLoader, linkTypes, prepareDropInFolder } f
 import { ResendTask } from "./resend.ts";
 import { type Client, reportingOf, Room, ROOM_DOCS, subagentView } from "./room.ts";
 import { Schedules } from "./schedules.ts";
-import { UsageResumes } from "./usage-resume.ts";
 import { Shell } from "./shell.ts";
 import {
     loadSessionSkills,
@@ -280,7 +279,6 @@ export class PocketApp {
     readonly providers = new Providers(this);
     readonly webAccess = new WebAccessManager();
     readonly schedules = new Schedules(this);
-    readonly usageResumes = new UsageResumes(this);
     readonly goals = new Goals(this);
     readonly shell = new Shell(this);
     readonly spend = new Spend(this);
@@ -523,9 +521,7 @@ export class PocketApp {
                     this.shell.task,
                     this.commands.followTask,
                     this.extensionCommands.task,
-                    this.usageResumes.task,
                 ],
-                hooks: [this.usageResumes.hook],
             }),
         );
         const host: PocketHost = {
@@ -558,6 +554,7 @@ export class PocketApp {
                 };
             },
             requesterOf: (conversationId) => this.attribution.requesterOf(conversationId),
+            responseLimits: (message) => this.providerLimits.forResponse(message),
             notice: (level, message, conversationId) => this.notice(level, message, conversationId),
             heldBack: (conversationId) => this.spend.heldBack(conversationId),
             onLimitsChanged: (listener) => this.spend.onLimitsChanged(listener),
@@ -1797,7 +1794,6 @@ export class PocketApp {
                 collab: 2,
                 reactions: REACTIONS,
                 approvalRule: this.config.approvalRule,
-                ponytailMode: this.config.ponytailMode,
                 // The model and thinking level new sessions start with, or null for the last one picked.
                 defaultModel: this.config.defaultModel ?? null,
                 // The theme and colors of browsers that have not chosen their own, or null for the app's own.
@@ -2568,20 +2564,6 @@ export class PocketApp {
     }
 
     /** The owner changes who may allow risky calls. */
-    async setPonytailMode(user: User, mode: unknown): Promise<void> {
-        if (mode !== "off" && mode !== "lite" && mode !== "full" && mode !== "ultra") {
-            throw new HttpError(400, "ponytailMode must be off, lite, full, or ultra");
-        }
-
-        if (mode === this.config.ponytailMode) {
-            return;
-        }
-
-        this.config.setPonytailMode(mode);
-        await this.#refreshClients();
-        this.notice("info", `Ponytail mode switched to '${mode}'.`);
-    }
-
     async setApprovalRule(user: User, rule: unknown): Promise<void> {
         if (user.role !== "owner") {
             throw new HttpError(403, "Only the owner can do that");

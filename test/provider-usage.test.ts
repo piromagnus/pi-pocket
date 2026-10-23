@@ -25,7 +25,12 @@ import {
 
 const agentDir = join(root, "usage-agent");
 const claudeDir = join(root, "usage-claude");
-const options = { env: {}, claudeDir, now: 1 };
+const options = {
+    env: {},
+    claudeDir,
+    antigravityDir: join(root, "empty-antigravity"),
+    now: 1,
+};
 
 await mkdir(agentDir, { recursive: true });
 await mkdir(claudeDir, { recursive: true });
@@ -248,6 +253,7 @@ test("token sharing and Mistral keys reach no usage endpoint; Pi's own requests'
 
     assert.deepEqual(calls, []);
     assert.equal(byId.mistral!.status, "observed");
+    assert.match(byId.mistral!.message, /no account usage endpoint/);
     assert.deepEqual(
         byId.mistral!.windows.map((window) => [window.label, window.used]),
         [
@@ -398,6 +404,139 @@ test("Claude Code credentials and environment keys are supported without executi
     });
 
     assert.equal(rows.find((row) => row.id === "claude-bridge")!.windows[0]!.used, 50);
+});
+
+test("Cursor SDK usage summarizes cloud agents without exposing the API key", async () => {
+    await credentials({ cursor: { type: "api_key", key: "secret-cursor" } });
+    const rows = await collectUsage({ agentDir }, undefined, {
+        ...options,
+        cursorUsage: async (apiKey) => {
+            assert.equal(apiKey, "secret-cursor");
+
+            return { agents: 2, tokens: 1_234, costCents: 500, runs: 7 };
+        },
+        fetch: mockFetch(() => new Response("{}", { status: 401 })),
+    });
+    const row = rows.find((each) => each.id === "cursor")!;
+
+    assert.equal(row.status, "ok");
+    assert.deepEqual(row.facts, [
+        "Cloud agents: 2",
+        "Billed tokens: 1,234",
+        "Billed cost: $5.00",
+        "Runs: 7",
+    ]);
+    assert.match(row.message, /not IDE usage/);
+    assert.ok(!JSON.stringify(rows).includes("secret-"));
+});
+
+test("Cursor Admin API reports team spend and requires an admin key", async () => {
+    await credentials({ cursor: { type: "api_key", key: "secret-cursor" } });
+    const rows = await collectUsage({ agentDir }, undefined, {
+        ...options,
+        cursorUsage: async () => ({ agents: 0, tokens: 0, costCents: 0, runs: 0 }),
+        fetch: mockFetch((url, init) => {
+            assert.equal(url, "https://api.cursor.com/teams/spend");
+            assert.equal(init.method, "POST");
+            assert.match(objectHeaders(init).Authorization ?? "", /^Basic /);
+
+            return Response.json({
+                teamMemberSpend: [
+                    { overallSpendCents: 1000, spendCents: 250, fastPremiumRequests: 3 },
+                    { overallSpendCents: 500, spendCents: 100, fastPremiumRequests: 1 },
+                ],
+                totalMembers: 2,
+                subscriptionCycleStart: "2026-10-01T00:00:00Z",
+            });
+        }),
+    });
+    const row = rows.find((each) => each.id === "cursor-admin")!;
+
+    assert.equal(row.status, "ok");
+    assert.ok(row.facts.includes("Team members: 2"));
+    assert.ok(row.facts.includes("On-demand spend: $3.50"));
+    assert.ok(row.facts.includes("Overall spend: $15.00"));
+    assert.ok(row.facts.includes("Fast premium requests: 4"));
+    assert.ok(row.facts.includes("Billing cycle start: 2026-10-01T00:00:00Z"));
+    assert.ok(!JSON.stringify(rows).includes("secret-"));
+});
+
+test("Cursor Admin API explains that a team admin key is required", async () => {
+    await credentials({ cursor: { type: "api_key", key: "secret-cursor" } });
+    const rows = await collectUsage({ agentDir }, undefined, {
+        ...options,
+        cursorUsage: async () => ({ agents: 0, tokens: 0, costCents: 0, runs: 0 }),
+        fetch: mockFetch(() => new Response("{}", { status: 401 })),
+    });
+    const row = rows.find((each) => each.id === "cursor-admin")!;
+
+    assert.equal(row.status, "unavailable");
+    assert.match(row.message, /team admin API key/);
+});
+
+test("Gemini Bridge shows one card per Antigravity account", async () => {
+    await credentials({});
+    const antigravityDir = join(root, "antigravity-multi");
+
+    await mkdir(antigravityDir, { recursive: true });
+    await writeFile(
+        join(antigravityDir, "a.json"),
+        JSON.stringify({
+            type: "antigravity",
+            access_token: "secret-a",
+            project_id: "project-a",
+            timestamp: 1000,
+            expires_in: 3600,
+        }),
+    );
+    await writeFile(
+        join(antigravityDir, "b.json"),
+        JSON.stringify({
+            type: "antigravity",
+            access_token: "secret-b",
+            project_id: "project-b",
+            timestamp: 1000,
+            expires_in: 3600,
+        }),
+    );
+    const calls: { auth: string; body: string }[] = [];
+    const rows = await collectUsage({ agentDir }, undefined, {
+        ...options,
+        antigravityDir,
+        fetch: mockFetch((_url, init) => {
+            const body = String(init.body);
+            const project = JSON.parse(body).project as string;
+
+            calls.push({ auth: objectHeaders(init).Authorization ?? "", body });
+
+            return Response.json({
+                groups: [
+                    {
+                        displayName:
+                            project === "project-a" ? "Gemini Models" : "Claude and GPT models",
+                        buckets: [
+                            {
+                                window: "weekly",
+                                remainingFraction: 0.25,
+                                resetTime: "2026-10-25T00:00:00Z",
+                            },
+                        ],
+                    },
+                ],
+            });
+        }),
+    });
+    const first = rows.find((each) => each.id === "gemini-bridge")!;
+    const second = rows.find((each) => each.id === "gemini-bridge-2")!;
+
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0]!.auth, "Bearer secret-a");
+    assert.equal(calls[1]!.auth, "Bearer secret-b");
+    assert.equal(first.status, "ok");
+    assert.equal(second.status, "ok");
+    assert.equal(first.windows[0]!.label, "Gemini Models · weekly");
+    assert.equal(second.windows[0]!.label, "Claude and GPT models · weekly");
+    assert.ok(!JSON.stringify(rows).includes("secret-"));
 });
 
 function objectHeaders(init: RequestInit) {

@@ -18,7 +18,7 @@ import {
 } from "./sheets/gallery.js";
 import { CwdSheet } from "./sheets/folder.js";
 import { MemorySheet } from "./sheets/memory.js";
-import { MenuSheet, PlacesSheet, PonytailSheet } from "./sheets/menu.js";
+import { MenuSheet, PlacesSheet } from "./sheets/menu.js";
 import { MessageSheet } from "./sheets/message.js";
 import { ModelPicker } from "./sheets/model.js";
 import { InviteSheet, PeopleSheet } from "./sheets/people.js";
@@ -181,9 +181,6 @@ function sheetBody(sheet) {
     let body = null;
 
     switch (sheet.type) {
-        case "ponytail":
-            body = html`<${PonytailSheet} />`;
-            break;
         case "appearance":
             body = html`<${AppearanceSheet} />`;
             break;

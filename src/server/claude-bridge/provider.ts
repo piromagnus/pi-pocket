@@ -14,6 +14,7 @@ import { bridgeModels } from "./catalogue.ts";
 export { bridgeModels } from "./catalogue.ts";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { assertClaudeLogin } from "./authentication.ts";
+import { claudeLimitText } from "./limits.ts";
 import { assertSubscriptionEnvironment, type WorkerInput, type WorkerOutput } from "./protocol.ts";
 import { compileBridge } from "./upstream.ts";
 
@@ -48,7 +49,7 @@ function failure(model: Model<Api>, message: string, aborted = false): Assistant
         timestamp: Date.now(),
         content: [],
         stopReason: aborted ? "aborted" : "error",
-        errorMessage: message,
+        errorMessage: aborted ? message : claudeLimitText(message),
         usage: {
             input: 0,
             output: 0,
@@ -258,6 +259,13 @@ export class ClaudeBridgeProvider {
 
             if (message.type === "event") {
                 if (!pending.terminal) {
+                    // Auto-resume reads a limit's kind and reset time from these words.
+                    if (message.event.type === "error" && message.event.reason === "error") {
+                        message.event.error.errorMessage = claudeLimitText(
+                            message.event.error.errorMessage ?? "",
+                        );
+                    }
+
                     pending.stream.push(message.event);
 
                     if (message.event.type === "done" || message.event.type === "error") {

@@ -22,7 +22,7 @@ export type ProviderLimit = {
 };
 
 /** Header names that carry limits: `x-ratelimit-*`, `anthropic-ratelimit-*`, quotas, and Codex's used percents. */
-const LIMIT_HEADER = /ratelimit|rate-limit|quota|^x-codex-(primary|secondary)-|^retry-after$/;
+const LIMIT_HEADER = /ratelimit|rate-limit|quota|^x-codex-(primary|secondary)-|^retry-after(-ms)?$/;
 const MAX_HEADERS = 40;
 const MAX_VALUE = 200;
 const WRITE_AFTER_MS = 2000;

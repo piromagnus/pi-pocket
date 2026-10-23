@@ -576,7 +576,6 @@ export function createApi(options: HttpOptions, auth: Auth) {
                 defaultModel?: unknown;
                 pipCompactAt?: unknown;
                 subagentModels?: unknown;
-                ponytailMode?: unknown;
             }>(request);
 
             // One at a time: a second that fails must not leave the first changed.
@@ -586,14 +585,9 @@ export function createApi(options: HttpOptions, auth: Auth) {
                     body.defaultModel,
                     body.pipCompactAt,
                     body.subagentModels,
-                    body.ponytailMode,
                 ].filter((value) => value !== undefined).length > 1
             ) {
                 throw new HttpError(400, "Change one setting at a time.");
-            }
-
-            if (body.ponytailMode !== undefined) {
-                await app.setPonytailMode(user, body.ponytailMode);
             }
 
             // The models subagents may run on besides their session's own: the owner's (checked in `app.ts`).
@@ -736,6 +730,10 @@ export function createApi(options: HttpOptions, auth: Auth) {
                 apiKey?: { provider: string; key: string };
                 enabled?: boolean;
                 maxResults?: number;
+                tierRouting?: import("../web-access-settings.ts").TierRouting;
+                providerSettings?: import("../web-access-settings.ts").ProviderSettings;
+                extractOrder?: string[];
+                operations?: Record<string, import("../web-access-settings.ts").WebOperation[]>;
             }>(request);
 
             if (body.apiKey) {
@@ -746,7 +744,11 @@ export function createApi(options: HttpOptions, auth: Auth) {
                 body.primaryProvider ||
                 body.providerOrder ||
                 body.enabled !== undefined ||
-                body.maxResults !== undefined
+                body.maxResults !== undefined ||
+                body.tierRouting !== undefined ||
+                body.providerSettings !== undefined ||
+                body.extractOrder !== undefined ||
+                body.operations !== undefined
             ) {
                 await app.webAccess.saveConfig({
                     ...(body.primaryProvider ? { provider: body.primaryProvider } : {}),
@@ -755,6 +757,12 @@ export function createApi(options: HttpOptions, auth: Auth) {
                         : {}),
                     ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
                     ...(body.maxResults !== undefined ? { maxResults: body.maxResults } : {}),
+                    ...(body.tierRouting !== undefined ? { tierRouting: body.tierRouting } : {}),
+                    ...(body.providerSettings !== undefined
+                        ? { providerSettings: body.providerSettings }
+                        : {}),
+                    ...(body.extractOrder !== undefined ? { extractOrder: body.extractOrder } : {}),
+                    ...(body.operations !== undefined ? { operations: body.operations } : {}),
                 });
             }
 
@@ -775,11 +783,15 @@ export function createApi(options: HttpOptions, auth: Auth) {
         }
 
         if (first === "web-access" && second === "search" && method === "POST") {
-            const body = await readJson<{ query: string; provider?: string; numResults?: number }>(
-                request,
-            );
+            const body = await readJson<{
+                query: string;
+                provider?: string;
+                numResults?: number;
+                tier?: import("../web-access-settings.ts").SearchTier;
+                mode?: string;
+            }>(request);
 
-            if (!body.query?.trim()) {
+            if (typeof body.query !== "string" || !body.query.trim()) {
                 throw new HttpError(400, "Query is required");
             }
 
@@ -787,6 +799,7 @@ export function createApi(options: HttpOptions, auth: Auth) {
                 body.query.trim(),
                 body.provider,
                 body.numResults,
+                { tier: body.tier, mode: body.mode, purpose: "tester" },
             );
 
             return json(response, 200, result);

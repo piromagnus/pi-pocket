@@ -43,8 +43,6 @@ import {
     type Turns,
     TurnsDoc,
     WatchDoc,
-    type UsageResume,
-    UsageResumeDoc,
 } from "./docs.ts";
 import { COMMAND_ENTRY, SHELL_ENTRY } from "./entry-format.ts";
 import { agentInfo } from "./models.ts";
@@ -81,7 +79,6 @@ export const ROOM_DOCS = new Set(
         ScheduleDoc,
         GoalDoc,
         WatchDoc,
-        UsageResumeDoc,
     ].map((doc) => doc.definition.kind),
 );
 /** A typing indicator lasts this long unless the browser renews it. */
@@ -328,7 +325,6 @@ export class Room {
     turns: Turns = { on: false, asks: [] };
     decisions: Record<string, Decision> = {};
     plan: { on: boolean; by?: string; at?: number } = { on: false };
-    usageResume: UsageResume = { on: false };
     schedules: Record<string, Schedule> = {};
     goal: Goal | undefined;
     watch: PrWatch | undefined;
@@ -381,9 +377,6 @@ export class Room {
             ...((await harness.snapshot(DecisionsDoc, this.id, context))?.calls ?? {}),
         };
         this.plan = { ...((await harness.snapshot(PlanDoc, this.id, context)) ?? { on: false }) };
-        this.usageResume = {
-            ...((await harness.snapshot(UsageResumeDoc, this.id, context)) ?? { on: false }),
-        };
         this.schedules = {
             ...((await harness.snapshot(ScheduleDoc, this.id, context))?.items ?? {}),
         };
@@ -454,8 +447,6 @@ export class Room {
             this.decisions = { ...((value?.calls as Record<string, Decision>) ?? {}) };
         } else if (kind === PlanDoc.definition.kind) {
             this.plan = { on: false, ...((value as Room["plan"] | null) ?? {}) };
-        } else if (kind === UsageResumeDoc.definition.kind) {
-            this.usageResume = { on: false, ...((value as UsageResume | null) ?? {}) };
         } else if (kind === ScheduleDoc.definition.kind) {
             this.schedules = { ...((value?.items as Record<string, Schedule>) ?? {}) };
         } else if (kind === GoalDoc.definition.kind) {
@@ -592,7 +583,6 @@ export class Room {
             turns: this.turns,
             decisions: this.decisions,
             plan: this.plan,
-            usageResume: this.usageResume,
             schedules: Object.values(this.schedules)
                 .sort((a, b) => a.next - b.next)
                 .map(({ id, text, next, every, by, runs }) => ({

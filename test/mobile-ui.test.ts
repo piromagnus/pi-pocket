@@ -169,6 +169,13 @@ test("/all-usage lets a steering guest request the first dashboard", real, async
     await fresh();
     await tap(row(first));
     await reach({ path: `/s/${first}` }, "the session");
+    await until(
+        async () =>
+            (await inPage<boolean>(
+                `const { store } = await import("/store.js"); return JSON.stringify(store.state.view.conversation?.kind === "session")`,
+            )) === true,
+        "the session view",
+    );
     const submitted = await inPage<unknown[]>(`
         const { store, actions } = await import("/store.js");
         const { parseCommand } = await import("/commands.js");

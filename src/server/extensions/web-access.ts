@@ -13,7 +13,7 @@ export default function createWebAccessExtension() {
     const searchTool = defineTool({
         name: "web_search",
         description:
-            "Search the live web for documentation, recent articles, news, and technical information using configured search providers (Tavily, Exa, Brave, Serper, OpenAI, DuckDuckGo). Returns structured results with titles, URLs, snippets, and synthesis.",
+            "Search the web with the configured providers. Choose tier quick for simple lookups, standard for general searches (default), deep for multi-source research retrieval. Fallback stays within that tier; request a different tier explicitly if needed. Provider override is strict. Modes: Exa lite/auto/deep-lite/deep; Tavily ultra-fast/fast/basic/advanced. Exa Lite uses cached content. Returns actual provider, mode and attempted fallbacks.",
         parameters: Type.Object({
             query: Type.String({ description: "The search query" }),
             numResults: Type.Optional(
@@ -24,6 +24,12 @@ export default function createWebAccessExtension() {
                     description:
                         "Optional preferred provider: auto, tavily, exa, brave, serper, openai, duckduckgo",
                 }),
+            ),
+            tier: Type.Optional(
+                Type.Union([Type.Literal("quick"), Type.Literal("standard"), Type.Literal("deep")]),
+            ),
+            mode: Type.Optional(
+                Type.String({ description: "Mode override; requires an explicit provider" }),
             ),
         }),
         replay: "safe",
@@ -37,8 +43,11 @@ export default function createWebAccessExtension() {
             }
 
             try {
-                const response = await manager.search(query, args.provider, args.numResults);
-                let text = "";
+                const response = await manager.search(query, args.provider, args.numResults, {
+                    tier: args.tier,
+                    mode: args.mode,
+                });
+                let text = `Search: ${response.tier ?? "standard"} · ${response.provider}/${response.mode ?? "default"}\n${response.attempts?.map((a) => `${a.provider}/${a.mode ?? "default"}: ${a.outcome}`).join("; ") ?? ""}\n\n`;
 
                 if (response.synthesis) {
                     text += `### Summary (${response.provider})\n${response.synthesis}\n\n`;
@@ -80,6 +89,12 @@ export default function createWebAccessExtension() {
             maxChars: Type.Optional(
                 Type.Number({ description: "Maximum characters to return (default 20000)" }),
             ),
+            provider: Type.Optional(
+                Type.String({
+                    description:
+                        "auto (configured extraction order), direct, tavily, or exa; explicit choice is strict",
+                }),
+            ),
         }),
         replay: "safe",
         execute: async (args) => {
@@ -90,7 +105,7 @@ export default function createWebAccessExtension() {
             }
 
             try {
-                const res = await manager.fetchContent(url, args.maxChars);
+                const res = await manager.fetchContent(url, args.maxChars, args.provider);
                 const text = `${res.text}${
                     res.truncated
                         ? `\n\n[Content truncated at ${res.text.length} of ${res.length} characters]`
@@ -111,8 +126,95 @@ export default function createWebAccessExtension() {
         },
     });
 
+    const crawlTool = defineTool({
+        name: "web_crawl",
+        description:
+            "Crawl a public website using Tavily and the owner's configured depth, breadth, page limit, and extraction settings. Returns page content. This can use multiple credits; use fetch_content for a single URL.",
+        parameters: Type.Object({ url: Type.String(), instructions: Type.Optional(Type.String()) }),
+        replay: "safe",
+        execute: async (args) => {
+            try {
+                const data = await manager.crawl(args.url, args.instructions);
+                const text = JSON.stringify(data);
+
+                return {
+                    output: [
+                        {
+                            type: "text" as const,
+                            text:
+                                text.length > 100000
+                                    ? `${text.slice(0, 100000)}\n[Output truncated]`
+                                    : text,
+                        },
+                    ],
+                };
+            } catch (error: any) {
+                return {
+                    output: [{ type: "text" as const, text: `Crawl error: ${error.message}` }],
+                };
+            }
+        },
+    });
+    const researchTool = defineTool({
+        name: "web_research",
+        description:
+            "Explicitly start a billable Tavily research job. Use only when a research report is needed, not as automatic search fallback. Returns a saved job ID; call web_research_status later for the report. If submission is uncertain, do not automatically resubmit.",
+        parameters: Type.Object({
+            input: Type.String(),
+            model: Type.Optional(
+                Type.Union([Type.Literal("mini"), Type.Literal("pro"), Type.Literal("auto")]),
+            ),
+        }),
+        execute: async (args) => {
+            try {
+                return {
+                    output: [
+                        {
+                            type: "text" as const,
+                            text: JSON.stringify(await manager.research(args.input, args.model)),
+                        },
+                    ],
+                };
+            } catch (error: any) {
+                return {
+                    output: [{ type: "text" as const, text: `Research error: ${error.message}` }],
+                };
+            }
+        },
+    });
+    const researchStatusTool = defineTool({
+        name: "web_research_status",
+        description:
+            "Read status/results for an existing local research job without starting another job. If pending/in_progress, wait before checking again.",
+        parameters: Type.Object({ id: Type.String() }),
+        replay: "safe",
+        execute: async (args) => {
+            try {
+                const text = JSON.stringify(await manager.researchStatus(args.id));
+
+                return {
+                    output: [
+                        {
+                            type: "text" as const,
+                            text:
+                                text.length > 100000
+                                    ? `${text.slice(0, 100000)}\n[Output truncated]`
+                                    : text,
+                        },
+                    ],
+                };
+            } catch (error: any) {
+                return {
+                    output: [
+                        { type: "text" as const, text: `Research status error: ${error.message}` },
+                    ],
+                };
+            }
+        },
+    });
+
     return defineExtension({
         name: "web-access",
-        tools: [searchTool, fetchTool],
+        tools: [searchTool, fetchTool, crawlTool, researchTool, researchStatusTool],
     });
 }

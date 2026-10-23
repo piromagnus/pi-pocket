@@ -24,7 +24,7 @@ Some state lives in this process alone, and a restart forgets it. For example:
 
 **Its parts:**
 
-- `commands`, `extensionCommands`, `collab`, `alerts`, `providers`, `schedules`, `usageResumes`, `goals`, `shell`, `spend`
+- `commands`, `extensionCommands`, `collab`, `alerts`, `providers`, `schedules`, `goals`, `shell`, `spend`
 - `workspace`, `transcripts`, `attribution`, `piSessions`, `pip`, `watches`, `hooks`, `memory`, `gallery`
 - `browsers`, `linkedSessions`
 
@@ -125,11 +125,11 @@ The optional [Claude Bridge adapter](claude-bridge.md) uses this contract. Its S
 
 The optional [Gemini subscription bridge](gemini-bridge.md) uses the same provider-module contract, but has no native agent worker: it delegates conversion and streaming to Pi's OpenAI Chat Completions transport through a loopback CLIProxyAPI. It reads the local proxy config and exact Antigravity-owned Gemini catalog before requests, rejects known paid/substitution configuration, bypasses environment HTTP proxies, and never executes upstream tools. Disable/dispose aborts requests and destroys its direct dispatcher. The proxy and its Google subscription login remain external, trusted infrastructure; the adapter does not attest billing eligibility or provider-policy permission.
 
-The optional [provider usage dashboard](provider-usage.md) is a tool-only drop-in, not a provider registration. It reads provider configuration and the calling conversation’s `UsageDoc`, makes fixed read-only usage requests, and delegates artifact storage to the existing artifact tool implementation. Anyone who can steer Pi can request it through the normal submission access checks; viewers can only open existing snapshots. It adds no HTTP routes or document kinds. Credentials and raw responses remain outside committed tool output; only normalized snapshot HTML is stored in the existing artifact documents. Its all-session totals scan every conversation's `UsageDoc` in a read-only commit. For providers without a usage endpoint it reads `host.providerLimits()`: `provider-limits.ts` overrides `streamSimple` on the app's `ModelRuntime` instance (which `completeSimple` goes through) to add an `onResponse` callback for pi-ai's own HTTP APIs only, keeping the limit headers of each provider's latest response in memory and in `provider-limits.json`. Extension providers get no callback: Claude Bridge refuses instrumentation across its worker boundary.
+The optional [provider usage dashboard](provider-usage.md) is a tool-only drop-in, not a provider registration. It reads provider configuration and the calling conversation’s `UsageDoc`, makes fixed read-only usage requests, and delegates artifact storage to the existing artifact tool implementation. Anyone who can steer Pi can request it through the normal submission access checks; viewers can only open existing snapshots. For Cursor it reads SDK cloud-agent usage and, when a team admin key is available, the Admin API’s team spend; for the Gemini bridge it reads the local CLIProxyAPI Antigravity credentials and calls Google's `retrieveUserQuotaSummary` endpoint once per signed-in account; Mistral has no account usage endpoint, so the card shows the rate limits Pi's own requests observed. It adds no HTTP routes or document kinds. Credentials and raw responses remain outside committed tool output; only normalized snapshot HTML is stored in the existing artifact documents. Its all-session totals scan every conversation's `UsageDoc` in a read-only commit. For providers without a usage endpoint it reads `host.providerLimits()`: `provider-limits.ts` overrides `streamSimple` on the app's `ModelRuntime` instance (which `completeSimple` goes through) to add an `onResponse` callback for pi-ai's own HTTP APIs only, keeping the limit headers of each provider's latest response in memory and in `provider-limits.json`. Extension providers get no callback: Claude Bridge refuses instrumentation across its worker boundary.
 
-## Usage-reset continuation
+## Auto-resume
 
-`usage-resume.ts` contributes a generation `afterResponse` hook and a durable task to `pocket-core`. The per-conversation `UsageResumeDoc` is opt-in and forks start with it off and without a pending task. On a recognized subscription error, `usage-reset.ts` uses the provider's reset guidance or fresh five-hour limit headers correlated to that exact assistant response. `provider-limits.ts` keeps that correlation in an in-memory weak map, separate from the provider-wide dashboard sample, without persisting message or conversation IDs. It never fetches account usage or guesses a five-hour delay. The hook idempotently records one conversation-owned wake-up per source generation, separately from the failing generation so it can settle unanswered. The task is not background work: a conversation Stop aborts it. At wake-up it requires the failed generation's assistant error to still be the latest transcript entry, an unchanged response model, and current access, driver, archive, and spend checks. It implements only idle, empty-inbox input admission with Durable's public `Tx` API: those checks, a stable requester-scoped submission ID, user entry, successor generation, and wake-up settlement share one Session commit. Config-file permissions are checked again after the awaited writes; revocation rolls back all staged admission work. Busy chats or queued work cancel rather than queue the continuation. Browser closure does not affect it; restart resumes its saved sleep. See [auto-resume.md](auto-resume.md).
+Auto-resume is the built-in module `extensions/auto-resume.ts`, which uses only `host` and `web`. Its generation `afterResponse` hook reads a failed request with `extensions/_usage-limits.ts`: the response's own status and limit headers (`host.responseLimits`, from `provider-limits.ts`'s in-memory correlation), then the error's words. It plans the retry as a repeating scheduled message through `host.schedules`, so the schedule task gives it durability, the requester's attribution, permission and spend checks, and Running now; its key carries the tries before it, and the schedule's `runs` counts the rest. Any successful answer cancels it. Its own documents are `x.auto-resume.chat` (a chat's choice; forks start without it) and `x.auto-resume.settings` (the owner's default and delay). Local: the Claude and Cursor bridges rewrite their limit words (`claude-bridge/limits.ts`, `cursor-bridge-limits.ts`) into forms it reads. See [auto-resume.md](auto-resume.md).
 
 ## The commit coordinator
 
@@ -255,6 +255,15 @@ What a browser shows is its person's choice of theme (`look`) and colors (`theme
 - `ATTACHMENTS_HEADING` and `splitAttachments` (which also reads the form sent before 0.14.0), which `ui.js` repeats from `entry-format.ts`.
 
 ## Checking a change
+
+**Web access.** The HTTP API and built-in extension use `WebAccessManager` instances
+with a shared configuration and request ledger. Search tier chains never escalate
+automatically; explicit provider overrides stay strict. Provider capabilities and
+validated settings are declared in `web-access-settings.ts` and rendered by the
+Web access sheet. Atomic writes in `web-access-storage.ts` serialize updates across
+instances. The ledger stores UTC daily counters and research handles, without
+queries or page content; it measures this app's observed requests, not account
+usage. Research creation is not replay-safe; status checks reuse persisted job IDs.
 
 - **Every change:** `npm run check` (types, and no unused imports or locals in the TypeScript), `npm run lint`, and `npm test`.
 - **Server:** the tests drive a real `PocketApp` with a scripted model, a restart included (`openApp` on the same folder). The built-in browser and peek tiles also run in a real Chromium where one is installed.

@@ -174,6 +174,18 @@ Since 0.12.0 · Stable
 
 Why Pi cannot start work in a session now when nobody asked for it, for example to read a subagent's report. The reason is a spend limit: the session's limit, or the limit of the person who pays there. It is `undefined` when Pi can start.
 
+### `responseLimits`
+
+```ts
+responseLimits(message: AssistantMessage): ResponseLimit | undefined;
+```
+
+Since 0.20.0 · Experimental
+
+The HTTP status and the rate-limit headers of the response that ended in `message`, as `{ at, status, headers }`. A generation hook reads them in `afterResponse`, to know why a request failed, and when the provider says to try again. Headers are by lower-case name. Pi Pocket keeps only limit headers (`retry-after`, `x-ratelimit-*`, `anthropic-ratelimit-*`, `x-codex-*`), never cookies or ids.
+
+It is `undefined` when the provider's API does not report its responses, as for Google's APIs and for providers that extensions add. Then only the error's words say why. The [auto-resume](../../auto-resume.md) module uses it.
+
 ### `onLimitsChanged`
 
 ```ts

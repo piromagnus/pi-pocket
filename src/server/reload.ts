@@ -60,6 +60,7 @@ const ORDER = [
     "subagents.ts",
     "agent-teams.ts",
     "schedules.ts",
+    "auto-resume.ts",
     "goals.ts",
     "plan.ts",
     "anthropic-subscription.ts",
@@ -87,6 +88,7 @@ const TITLES: Record<string, string> = {
     "subagents.ts": "Subagents",
     "agent-teams.ts": "Agent Teams",
     "schedules.ts": "Scheduled messages",
+    "auto-resume.ts": "Auto-resume",
     "goals.ts": "Done when",
     "plan.ts": "Plan mode",
     "anthropic-subscription.ts": "Claude subscription billing",
@@ -130,6 +132,11 @@ export const BUILT_IN_TOOLS: ReadonlySet<string> = new Set([
     "watch_pr",
     "repo_watch",
     "session_watch_pr",
+    "web_search",
+    "fetch_content",
+    "web_crawl",
+    "web_research",
+    "web_research_status",
 ]);
 
 /** Pi Pocket's own modules, or the owner's from the drop-in folder. */

@@ -242,4 +242,11 @@ The menu in `sheets/menu.js` keeps `Sheet`'s focus, Escape, drag-to-close, and t
 
 ## Local provider and usage additions
 
-`claude-bridge/`, `gemini-bridge.ts`, and `provider-limits.ts` supply the local provider bridges and usage observations. `usage-resume.ts` and `usage-reset.ts` implement the per-chat usage reset continuation described in [auto-resume.md](auto-resume.md).
+`web-access.ts` routes search tiers and extraction providers and implements Tavily
+crawl/research jobs. `web-access-settings.ts` defines validated options and the
+provider capabilities sent to `web/sheets/web-access-options.js`.
+`web-access-storage.ts` serializes atomic configuration and observed-usage writes
+across the API and extension manager instances. See
+[web-access-configuration-plan.md](web-access-configuration-plan.md).
+
+`claude-bridge/`, `gemini-bridge.ts`, and `provider-limits.ts` supply the local provider bridges and usage observations. The built-in `extensions/auto-resume.ts` continues a chat after a provider's limit; `claude-bridge/limits.ts` and `cursor-bridge-limits.ts` put the local bridges' limit words in forms it reads ([auto-resume.md](auto-resume.md)).

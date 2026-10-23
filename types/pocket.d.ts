@@ -14,7 +14,7 @@
  * fails when this file and Pi Pocket's code do not agree.
  */
 import type { Context } from "@earendil-works/chord";
-import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { Skill } from "@earendil-works/pi-coding-agent";
 import type {
     ConversationId,
@@ -164,6 +164,13 @@ export interface Host {
      */
     requesterOf(conversationId: ConversationId): string | undefined;
     /**
+     * The HTTP status and rate-limit headers of the response that ended in `message`, when its provider's API reports
+     * them. A generation hook reads them in `afterResponse`. Only limit headers are kept.
+     * @since 0.20.0
+     * @experimental
+     */
+    responseLimits(message: AssistantMessage): ResponseLimit | undefined;
+    /**
      * Reports something to the server log and to the app. With `conversationId` (since 0.13.1), only that session's
      * tabs show it.
      * @since 0.1.0
@@ -209,6 +216,21 @@ export interface Host {
      * @since 0.14.0
      */
     readonly thinkingLevels: readonly ModelThinkingLevel[];
+}
+
+/**
+ * The status and rate-limit headers of one model response.
+ * @since 0.20.0
+ * @experimental
+ */
+export interface ResponseLimit {
+    /** When the response came, in milliseconds since 1970. */
+    at: number;
+    status: number;
+    /** Its rate-limit headers (`retry-after`, `x-ratelimit-*`, `anthropic-ratelimit-*`, …), by lower-case name. */
+    headers: Record<string, string>;
+    /** Local: the provider's latest earlier refusal for a limit (429). */
+    limited?: { at: number; headers: Record<string, string> };
 }
 
 /**
@@ -652,7 +674,7 @@ export type RailSpec = Action & {
 };
 
 /**
- * A row in the menu's App group.
+ * A row in the menu's App or Session group.
  * @since 0.14.0
  */
 export type MenuSpec = Action & {
@@ -671,6 +693,12 @@ export type MenuSpec = Action & {
      * @since 0.14.0
      */
     hint?: string;
+    /**
+     * The menu group. Defaults to "app"; "session" shows only in a session.
+     * Experimental: older apps ignore this field and use the App group.
+     * @since 0.21.0
+     */
+    group?: "app" | "session";
 };
 
 /**

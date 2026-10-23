@@ -3,6 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, attempt, closeSheet, store } from "../store.js";
 import { html, Icon, Loader, Sheet, Switch } from "../ui.js";
+import { WebAccessOptions } from "./web-access-options.js";
 
 export function WebAccessSheet() {
     const { me } = store.state;
@@ -15,12 +16,16 @@ export function WebAccessSheet() {
     const [showKey, setShowKey] = useState({});
     const [testResults, setTestResults] = useState({});
     const [testing, setTesting] = useState({});
+    const [configuringKey, setConfiguringKey] = useState({});
 
     // Live search testing
     const [searchQuery, setSearchQuery] = useState("");
     const [searching, setSearching] = useState(false);
     const [searchOutput, setSearchOutput] = useState(null);
     const [searchError, setSearchError] = useState("");
+    const [searchTier, setSearchTier] = useState("standard");
+    const [searchProvider, setSearchProvider] = useState("auto");
+    const [searchMode, setSearchMode] = useState("");
 
     const load = async () => {
         setLoading(true);
@@ -37,8 +42,35 @@ export function WebAccessSheet() {
         load();
     }, []);
 
+    const saveOptions = async (updates) => {
+        setSaving(true);
+        const updated = await attempt(() => api("web-access", updates));
+
+        if (updated) {
+            setData(updated);
+        }
+
+        setSaving(false);
+    };
+
+    const refreshUsage = async () => {
+        const updated = await attempt(() => api("web-access"));
+
+        if (updated) {
+            setData((was) => (was ? { ...was, usage: updated.usage } : updated));
+        }
+    };
+
+    const toggleConfiguring = (providerId) => {
+        setConfiguringKey((was) => ({ ...was, [providerId]: !was[providerId] }));
+    };
+
     const saveKey = async (providerId) => {
         const key = keys[providerId] ?? "";
+
+        if (!key.trim()) {
+            return;
+        }
 
         setSaving(true);
         const updated = await attempt(() =>
@@ -48,6 +80,7 @@ export function WebAccessSheet() {
         if (updated) {
             setData(updated);
             setKeys((was) => ({ ...was, [providerId]: "" }));
+            setConfiguringKey((was) => ({ ...was, [providerId]: false }));
             // Automatically test after saving
             testProvider(providerId);
         }
@@ -64,6 +97,7 @@ export function WebAccessSheet() {
         if (updated) {
             setData(updated);
             setKeys((was) => ({ ...was, [providerId]: "" }));
+            setConfiguringKey((was) => ({ ...was, [providerId]: false }));
             setTestResults((was) => ({ ...was, [providerId]: null }));
         }
 
@@ -118,6 +152,7 @@ export function WebAccessSheet() {
         }
 
         setTesting((was) => ({ ...was, [providerId]: false }));
+        refreshUsage();
     };
 
     const runLiveSearch = async (event) => {
@@ -135,8 +170,10 @@ export function WebAccessSheet() {
         try {
             const res = await api("web-access/search", {
                 query: q,
-                provider: data?.primaryProvider,
+                provider: searchProvider,
                 numResults: data?.maxResults ?? 5,
+                tier: searchTier,
+                ...(searchProvider !== "auto" && searchMode ? { mode: searchMode } : {}),
             });
 
             setSearchOutput(res);
@@ -144,12 +181,13 @@ export function WebAccessSheet() {
             setSearchError(err?.message || String(err));
         } finally {
             setSearching(false);
+            refreshUsage();
         }
     };
 
     return html`<${Sheet} title="Web Access & Search" onClose=${closeSheet}>
         <div class="web-access-sheet">
-            <p class="ext-intro">
+            <p class="muted small">
                 Configure live web access and search providers for Pi. When enabled, Pi can use
                 <span class="mono"> web_search</span> and
                 <span class="mono"> fetch_content</span> to browse recent documentation, current
@@ -161,14 +199,15 @@ export function WebAccessSheet() {
             ${
                 data &&
                 html`
-                    <div class="web-access-global group">
-                        <div class="setting">
-                            <div class="grow">
-                                <div class="small">Enable web tools for Pi</div>
-                                <div class="muted small">
+                    <div class="label">Preferences</div>
+                    <div class="sheet-list">
+                        <div class="setting-row">
+                            <div class="setting-text">
+                                <span>Enable web tools for Pi</span>
+                                <span>
                                     Offers <span class="mono">web_search</span> and
-                                    <span class="mono">fetch_content</span> in sessions.
-                                </div>
+                                    <span class="mono"> fetch_content</span> in sessions.
+                                </span>
                             </div>
                             <${Switch}
                                 on=${data.enabled}
@@ -178,17 +217,16 @@ export function WebAccessSheet() {
                             />
                         </div>
 
-                        <div class="setting">
-                            <div class="grow">
-                                <div class="small">Primary search provider</div>
-                                <div class="muted small">
-                                    Preferred provider. If it fails or is rate-limited, Pi
-                                    automatically falls back to the next configured provider.
-                                </div>
+                        <div class="setting-row">
+                            <div class="setting-text">
+                                <span>Primary search provider</span>
+                                <span>
+                                    Used by legacy standard routing until tier chains are saved.
+                                </span>
                             </div>
                             <select
-                                class="select small"
-                                disabled=${!owner || saving}
+                                class="web-select-primary"
+                                disabled=${!owner || saving || data.tierRoutingEnabled}
                                 value=${data.primaryProvider}
                                 onChange=${(e) => setPrimary(e.currentTarget.value)}
                             >
@@ -201,195 +239,265 @@ export function WebAccessSheet() {
                                                     ? p.apiKeyRequired
                                                         ? " (configured)"
                                                         : " (ready)"
-                                                    : " (no key)"
+                                                    : " (needs key)"
                                             }
                                         </option>`,
                                 )}
                             </select>
                         </div>
 
-                        <div class="setting">
-                            <div class="grow">
-                                <div class="small">Max search results per query</div>
-                                <div class="muted small">
-                                    Number of results Pi retrieves (default 5, max 20).
-                                </div>
+                        <div class="setting-row">
+                            <div class="setting-text">
+                                <span>Results per query</span>
+                                <span>Number of search results Pi retrieves (3 to 15).</span>
                             </div>
-                            <select
-                                class="select small"
-                                disabled=${!owner || saving}
-                                value=${data.maxResults}
-                                onChange=${(e) => updateMaxResults(Number(e.currentTarget.value))}
-                            >
-                                <option value="3">3 results (compact)</option>
-                                <option value="5">5 results (balanced)</option>
-                                <option value="10">10 results (thorough)</option>
-                                <option value="15">15 results (extended)</option>
-                            </select>
+                            <div class="segmented" role="group" aria-label="Search results depth">
+                                ${[3, 5, 10, 15].map(
+                                    (n) => html`<button
+                                        type="button"
+                                        class=${data.maxResults === n ? "on" : ""}
+                                        aria-pressed=${data.maxResults === n}
+                                        disabled=${!owner || saving}
+                                        onClick=${() => updateMaxResults(n)}
+                                    >
+                                        ${n}
+                                    </button>`,
+                                )}
+                            </div>
                         </div>
                     </div>
 
-                    <div class="group">
-                        <div class="group-title">Search Providers (${data.providers.length})</div>
-                        <div class="web-provider-list">
-                            ${data.providers.map((p) => {
-                                const isPrimary = data.primaryProvider === p.id;
-                                const test = testResults[p.id];
-                                const isTesting = testing[p.id];
-                                const hasKey = p.keyConfigured;
-                                const isShow = showKey[p.id];
-                                const inputValue = keys[p.id] ?? "";
+                    ${
+                        data.tierRouting &&
+                        html`<${WebAccessOptions}
+                        data=${data}
+                        disabled=${!owner || saving}
+                        save=${saveOptions}
+                        refresh=${refreshUsage}
+                    />`
+                    }
 
-                                return html`<div class="web-provider-card" key=${p.id}>
-                                    <div class="web-provider-head">
-                                        <div class="web-provider-info">
-                                            <div class="web-provider-name-row">
-                                                <strong class="web-provider-name">${p.name}</strong>
-                                                ${
-                                                    isPrimary &&
-                                                    html`<span class="badge primary">Primary</span>`
-                                                }
-                                                ${
-                                                    hasKey
-                                                        ? html`<span class="badge ok">✓ Ready</span>`
-                                                        : p.apiKeyRequired
-                                                          ? html`<span class="badge warn"
+                    <div class="label">Search Providers (${data.providers.length})</div>
+                    <div class="sheet-list">
+                        ${data.providers.map((p) => {
+                            const isPrimary = data.primaryProvider === p.id;
+                            const test = testResults[p.id];
+                            const isTesting = testing[p.id];
+                            const hasKey = p.keyConfigured;
+                            const isShow = showKey[p.id];
+                            const inputValue = keys[p.id] ?? "";
+                            const isConfiguring = configuringKey[p.id] ?? false;
+
+                            return html`<div
+                                class=${`web-provider-row ${isPrimary ? "is-primary" : ""}`}
+                                key=${p.id}
+                            >
+                                <div class="web-provider-main">
+                                    <div class="web-provider-info">
+                                        <div class="web-provider-name-row">
+                                            <span class="web-provider-title">${p.name}</span>
+                                            ${
+                                                isPrimary &&
+                                                html`<span class="badge primary">Primary</span>`
+                                            }
+                                            ${
+                                                hasKey
+                                                    ? html`<span class="badge ok">✓ Ready</span>`
+                                                    : p.apiKeyRequired
+                                                      ? html`<span class="badge warn"
                                                             >Needs Key</span
                                                         >`
-                                                          : html`<span class="badge muted"
-                                                            >No Key Needed</span
+                                                      : html`<span class="badge muted"
+                                                            >Free · No Key</span
                                                         >`
-                                                }
-                                            </div>
-                                            <p class="muted small">${p.description}</p>
-                                            <div class="web-provider-meta small">
-                                                <a
-                                                    href=${p.website}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    class="link small"
-                                                >
-                                                    Documentation & Keys
-                                                    <${Icon} name="external" size=${11} />
-                                                </a>
-                                                ${p.keySource && p.keySource !== "none" && html`<span class="muted mono">· source: ${p.keySource}</span>`}
-                                                ${p.maskedKey && html`<span class="muted mono">· key: ${p.maskedKey}</span>`}
-                                            </div>
-                                        </div>
-
-                                        <div class="web-provider-actions">
-                                            ${
-                                                !isPrimary &&
-                                                html`<button
-                                                class="button small"
-                                                disabled=${!owner || saving}
-                                                onClick=${() => setPrimary(p.id)}
-                                                title="Set as active provider"
-                                            >
-                                                Use as primary
-                                            </button>`
                                             }
-                                            <button
-                                                class="button small"
-                                                disabled=${isTesting || (!hasKey && !inputValue)}
-                                                onClick=${() => testProvider(p.id)}
+                                        </div>
+                                        <div class="muted small web-provider-desc">
+                                            ${p.description}
+                                        </div>
+                                        <div class="web-provider-meta small">
+                                            <a
+                                                href=${p.website}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                class="link small"
                                             >
-                                                ${
-                                                    isTesting
-                                                        ? html`<${Loader} label="Testing" />`
-                                                        : "Test Connection"
-                                                }
-                                            </button>
+                                                Documentation & Keys
+                                                <${Icon} name="external" size=${11} />
+                                            </a>
+                                            ${hasKey && p.maskedKey && html`<span class="muted mono">· key: ${p.maskedKey}</span>`}
+                                            ${hasKey && p.keySource && p.keySource !== "none" && html`<span class="muted">· source: ${p.keySource}</span>`}
                                         </div>
                                     </div>
 
-                                    ${
-                                        test &&
-                                        html`<div
-                                        class=${`web-test-status small ${test.ok ? "ok" : "warn"}`}
-                                    >
+                                    <div class="web-provider-actions">
                                         ${
-                                            test.ok
-                                                ? `✓ Connection successful (${test.latencyMs ?? 0} ms)`
-                                                : `✗ Error: ${test.error || "Connection failed"}`
-                                        }
-                                    </div>`
-                                    }
-
-                                    ${
-                                        owner &&
-                                        p.apiKeyRequired &&
-                                        html`<div class="web-key-row">
-                                        <div class="web-key-input-wrap">
-                                            <input
-                                                type=${isShow ? "text" : "password"}
-                                                class="input small mono"
-                                                placeholder=${
-                                                    p.maskedKey
-                                                        ? `Replace existing key (${p.maskedKey})`
-                                                        : `Enter ${p.name} API key`
-                                                }
-                                                value=${inputValue}
-                                                onInput=${(e) =>
-                                                    setKeys((was) => ({
-                                                        ...was,
-                                                        [p.id]: e.currentTarget.value,
-                                                    }))}
-                                            />
-                                            <button
-                                                type="button"
-                                                class="button icon-only ghost small"
-                                                onClick=${() =>
-                                                    setShowKey((was) => ({
-                                                        ...was,
-                                                        [p.id]: !was[p.id],
-                                                    }))}
-                                                title=${isShow ? "Hide key" : "Show key"}
-                                            >
-                                                ${isShow ? "Hide" : "Show"}
-                                            </button>
-                                        </div>
-                                        <button
-                                            class="button small primary"
-                                            disabled=${saving || !inputValue.trim()}
-                                            onClick=${() => saveKey(p.id)}
-                                        >
-                                            Save Key
-                                        </button>
-                                        ${
-                                            hasKey &&
-                                            p.keySource === "web-search.json" &&
+                                            !isPrimary &&
                                             html`<button
-                                            class="button small ghost"
-                                            disabled=${saving}
-                                            onClick=${() => clearKey(p.id)}
-                                            title="Clear stored key"
+                                            class="button small"
+                                            disabled=${!owner || saving}
+                                            onClick=${() => setPrimary(p.id)}
+                                            title="Set as primary search provider"
                                         >
-                                            Clear
+                                            Make primary
                                         </button>`
                                         }
-                                    </div>`
+                                        <button
+                                            class="button small ghost"
+                                            disabled=${isTesting || (!hasKey && !inputValue)}
+                                            onClick=${() => testProvider(p.id)}
+                                            title="Test provider connection"
+                                        >
+                                            ${
+                                                isTesting
+                                                    ? html`<${Loader} label="Testing" />`
+                                                    : "Test"
+                                            }
+                                        </button>
+                                        ${
+                                            owner &&
+                                            p.apiKeyRequired &&
+                                            html`<button
+                                            class="button small ghost"
+                                            onClick=${() => toggleConfiguring(p.id)}
+                                        >
+                                            ${
+                                                isConfiguring
+                                                    ? "Close"
+                                                    : hasKey
+                                                      ? "Change key"
+                                                      : "Add key"
+                                            }
+                                        </button>`
+                                        }
+                                    </div>
+                                </div>
+
+                                ${
+                                    test &&
+                                    html`<div
+                                    class=${`web-test-status small ${test.ok ? "ok" : "warn"}`}
+                                >
+                                    ${
+                                        test.ok
+                                            ? `✓ Connection verified (${test.latencyMs ?? 0} ms)`
+                                            : `✗ Error: ${test.error || "Connection failed"}`
                                     }
-                                </div>`;
-                            })}
-                        </div>
+                                </div>`
+                                }
+
+                                ${
+                                    owner &&
+                                    p.apiKeyRequired &&
+                                    isConfiguring &&
+                                    html`<div class="web-key-drawer">
+                                    <div class="web-key-input-wrap">
+                                        <input
+                                            type=${isShow ? "text" : "password"}
+                                            class="input small mono"
+                                            placeholder=${
+                                                p.maskedKey
+                                                    ? `New key (current: ${p.maskedKey})`
+                                                    : `Enter ${p.name} API key`
+                                            }
+                                            value=${inputValue}
+                                            onInput=${(e) =>
+                                                setKeys((was) => ({
+                                                    ...was,
+                                                    [p.id]: e.currentTarget.value,
+                                                }))}
+                                        />
+                                        <button
+                                            type="button"
+                                            class="button icon-only ghost small"
+                                            onClick=${() =>
+                                                setShowKey((was) => ({
+                                                    ...was,
+                                                    [p.id]: !was[p.id],
+                                                }))}
+                                            title=${isShow ? "Hide key" : "Show key"}
+                                        >
+                                            <${Icon} name="eye" size=${13} />
+                                        </button>
+                                    </div>
+                                    <button
+                                        class="button small primary"
+                                        disabled=${saving || !inputValue.trim()}
+                                        onClick=${() => saveKey(p.id)}
+                                    >
+                                        Save
+                                    </button>
+                                    ${
+                                        hasKey &&
+                                        p.keySource === "web-search.json" &&
+                                        html`<button
+                                        class="button small ghost"
+                                        disabled=${saving}
+                                        onClick=${() => clearKey(p.id)}
+                                        title="Clear stored API key"
+                                    >
+                                        Clear
+                                    </button>`
+                                    }
+                                    <button
+                                        class="button small ghost"
+                                        type="button"
+                                        onClick=${() => toggleConfiguring(p.id)}
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>`
+                                }
+                            </div>`;
+                        })}
                     </div>
 
-                    <div class="group">
-                        <div class="group-title">Live Search Verification</div>
-                        <p class="muted small">
-                            Test real search queries right here to verify providers and snippet
-                            extraction.
+                    <div class="label">Live Search Verification</div>
+                    <div class="web-search-card">
+                        <p class="muted small" style="margin: 0;">
+                            Test queries with your primary provider (${data.primaryProvider}) to
+                            verify search results and snippets.
                         </p>
 
                         <form class="web-live-search-form" onSubmit=${runLiveSearch}>
-                            <input
-                                type="text"
-                                class="input grow"
-                                placeholder="Try searching: e.g. Node 24 new features, Pi Pocket, or weather in Paris..."
-                                value=${searchQuery}
-                                onInput=${(e) => setSearchQuery(e.currentTarget.value)}
-                            />
+                            <div class="web-route-row">
+                                <select aria-label="Search tier" value=${searchTier} onChange=${(e) => setSearchTier(e.currentTarget.value)}>
+                                    ${["quick", "standard", "deep"].map((tier) => html`<option value=${tier}>${tier}</option>`)}
+                                </select>
+                                <select aria-label="Search provider override" value=${searchProvider} onChange=${(
+                                    e,
+                                ) => {
+                                    setSearchProvider(e.currentTarget.value);
+                                    setSearchMode("");
+                                }}>
+                                    <option value="auto">Automatic routing</option>
+                                    ${data.providers.map((p) => html`<option value=${p.id}>${p.name}</option>`)}
+                                </select>
+                                <select aria-label="Search mode override" value=${searchMode} disabled=${searchProvider === "auto"} onChange=${(e) => setSearchMode(e.currentTarget.value)}>
+                                    <option value="">Provider default</option>
+                                    ${(data.searchModes?.[searchProvider] ?? []).map((m) => html`<option value=${m}>${m}</option>`)}
+                                </select>
+                            </div>
+                            <div class="search">
+                                <${Icon} name="search" size=${16} />
+                                <input
+                                    type="text"
+                                    placeholder="e.g. Node 24 features, Pi Pocket, or weather in Tokyo..."
+                                    value=${searchQuery}
+                                    onInput=${(e) => setSearchQuery(e.currentTarget.value)}
+                                />
+                                ${
+                                    searchQuery &&
+                                    html`<button
+                                    type="button"
+                                    class="search-clear icon-button"
+                                    onClick=${() => setSearchQuery("")}
+                                    title="Clear search query"
+                                >
+                                    <${Icon} name="close" size=${13} />
+                                </button>`
+                                }
+                            </div>
                             <button
                                 type="submit"
                                 class="button primary"
@@ -404,15 +512,24 @@ export function WebAccessSheet() {
                         ${
                             searchOutput &&
                             html`<div class="web-search-results">
-                            <div class="muted small mono">
-                                Provider: ${searchOutput.provider} · Query: "${searchOutput.query}"
-                                · ${searchOutput.results.length} results
+                            <div class="web-search-meta small muted">
+                                Provider:
+                                <b class="web-meta-bold">${searchOutput.provider}/${searchOutput.mode ?? "default"} (${searchOutput.tier ?? "standard"})</b>
+                                · Query:
+                                <i class="web-meta-query">"${searchOutput.query}"</i>
+                                ·
+                                <b>${searchOutput.results.length}</b>
+                                results
                             </div>
+                            <p class="muted small">${searchOutput.attempts?.map((a) => `${a.provider}: ${a.outcome}`).join(" → ")}</p>
 
                             ${
                                 searchOutput.synthesis &&
                                 html`<div class="web-synthesis-box">
-                                <strong>AI Summary</strong>
+                                <div class="web-synthesis-head">
+                                    <${Icon} name="sparkle" size=${14} />
+                                    <strong>AI Summary</strong>
+                                </div>
                                 <p class="small">${searchOutput.synthesis}</p>
                             </div>`
                             }
@@ -420,28 +537,30 @@ export function WebAccessSheet() {
                             <div class="web-results-list">
                                 ${searchOutput.results.map(
                                     (item, idx) => html`<div class="web-result-item" key=${idx}>
-                                        <div class="web-result-title">
+                                        <div class="web-result-head">
+                                            <span class="web-result-index">${idx + 1}.</span>
                                             <a
                                                 href=${item.url}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
-                                                class="link"
+                                                class="link web-result-link"
                                             >
-                                                ${idx + 1}. ${item.title}
+                                                ${item.title || item.url}
                                             </a>
                                             ${
                                                 item.publishedDate &&
                                                 html`<span class="muted small"
-                                                >· ${item.publishedDate}</span
-                                            >`
+                                                    >· ${item.publishedDate}</span
+                                                >`
                                             }
                                         </div>
-                                        <div class="web-result-url muted small mono">
-                                            ${item.url}
-                                        </div>
-                                        <div class="web-result-snippet small">
-                                            ${item.content}
-                                        </div>
+                                        <div class="web-result-url mono muted">${item.url}</div>
+                                        ${
+                                            (item.content || item.snippet) &&
+                                            html`<div class="web-result-snippet small">
+                                                ${item.content || item.snippet}
+                                            </div>`
+                                        }
                                     </div>`,
                                 )}
                             </div>

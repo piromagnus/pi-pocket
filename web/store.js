@@ -58,7 +58,6 @@ const emptyView = () => ({
     turns: { on: false, asks: [] },
     decisions: {},
     plan: { on: false },
-    usageResume: { on: false },
     schedules: [],
     goal: null,
     watch: null,
@@ -541,7 +540,6 @@ function mergeView(current, data) {
         turns: data.turns ?? base.turns,
         decisions: data.decisions ?? base.decisions,
         plan: data.plan ?? base.plan,
-        usageResume: data.usageResume ?? base.usageResume,
         schedules: data.schedules ?? base.schedules,
         // No goal is null, which the server sends too: only a missing field keeps the last value.
         goal: data.goal === undefined ? base.goal : data.goal,
@@ -1110,8 +1108,6 @@ export const actions = {
         api(`c/${current()}/fork`, { entryId, ...(worktree ? { worktree } : {}) }),
     /** Send a message to Pi again in a fork that ends just before it: `{ text }` edits it, `{ model }` picks another model. */
     resend: (entryId, change = {}) => api(`c/${current()}/resend`, { entryId, ...change }),
-    setPonytailMode: (mode) => api("settings", { ponytailMode: mode }),
-    setUsageResume: (on) => api(`c/${current()}/usage-resume`, { on }),
     setPlan: (on) => api(`c/${current()}/plan`, { on }),
     approvePlan: () => api(`c/${current()}/plan`, { approve: true }),
     prompts: () => api(`c/${current()}/prompts`),

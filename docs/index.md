@@ -43,7 +43,7 @@ A drop-in extension stays when Pi Pocket updates, and the owner can turn it off 
 - [architecture.md](architecture.md): how the parts depend on each other, and the orders that they need.
 - [features.md](features.md): what each feature does, as people use it.
 - [provider-usage.md](provider-usage.md): the opt-in, owner-installed provider usage dashboard, shared request access, supported endpoints, and privacy limits.
-- [auto-resume.md](auto-resume.md): opt-in continuation of a chat after a five-hour subscription usage reset, durability, cancellation, and supported reset signals.
+- [auto-resume.md](auto-resume.md): continue a chat after a provider's usage or rate limit, and how each provider's errors are read.
 - [claude-bridge.md](claude-bridge.md): the opt-in Claude Code subscription provider, its safeguards, installation, and durability.
 - [gemini-bridge.md](gemini-bridge.md): the optional Antigravity Gemini subscription bridge through local CLIProxyAPI, its account-policy risks, and subscription-only checks.
 - [../SECURITY.md](../SECURITY.md): what Pi Pocket protects, and what it does not.

@@ -1,7 +1,7 @@
 import type { Context } from "@earendil-works/chord";
 import { awaitWithContext } from "@earendil-works/chord/context";
 import type { Skill } from "@earendil-works/pi-coding-agent";
-import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type {
     ConversationId,
     DocumentReader,
@@ -258,6 +258,11 @@ export interface PocketHost {
     shapeModelRequests(shape: ModelRequestShaper): () => void;
     /** Who Pi works for in a conversation now: whose message led to its current work. */
     requesterOf(conversationId: ConversationId): string | undefined;
+    /**
+     * The HTTP status and rate-limit headers of the response that ended in `message`, when its provider's API reports
+     * them (`provider-limits.ts`): a generation hook reads them in `afterResponse`. Only limit headers are kept.
+     */
+    responseLimits(message: AssistantMessage): ProviderLimit | undefined;
     /** Report something odd to the log and the connected clients: with `conversationId`, to that session's tabs only. */
     notice(
         level: "info" | "warning" | "error",

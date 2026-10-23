@@ -6,7 +6,6 @@ import { after, test } from "node:test";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { usageResetAt } from "../src/server/usage-reset.ts";
 import { limitHeaders, ProviderLimits, recordResponses } from "../src/server/provider-limits.ts";
 
 after(cleanUp);
@@ -149,22 +148,12 @@ test("concurrent streams correlate their own response headers, never another cha
         limits.all()["openai-codex"]!.headers["x-codex-primary-reset-after-seconds"],
         "60",
     );
-    assert.equal(
-        usageResetAt("Usage refused", "openai-codex", limits.forResponse(a), now),
-        now + 660_000,
-    );
-    assert.equal(
-        usageResetAt("Usage refused", "openai-codex", limits.forResponse(b), now),
-        now + 120_000,
-    );
+    assert.equal(limits.forResponse(a)?.headers["x-codex-primary-reset-after-seconds"], "600");
+    assert.equal(limits.forResponse(b)?.headers["x-codex-primary-reset-after-seconds"], "60");
     const unrelated = fauxAssistantMessage([], {
         stopReason: "error",
         errorMessage: "Usage refused",
     });
 
     assert.equal(limits.forResponse(unrelated), undefined);
-    assert.equal(
-        usageResetAt("Usage refused", "openai-codex", limits.forResponse(unrelated), now),
-        undefined,
-    );
 });

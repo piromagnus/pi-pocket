@@ -1,5 +1,5 @@
 /** A read-only dashboard of connected providers' subscription allowances and API-key spending. */
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
@@ -41,7 +41,16 @@ type Options = {
     fetch?: typeof fetch;
     env?: NodeJS.ProcessEnv;
     claudeDir?: string;
+    antigravityDir?: string;
+    cursorUsage?: (apiKey: string) => Promise<CursorUsageSummary>;
     now?: number;
+};
+
+export type CursorUsageSummary = {
+    agents: number;
+    tokens: number;
+    costCents: number;
+    runs: number;
 };
 const ENV_KEYS: Record<string, string> = {
     anthropic: "ANTHROPIC_API_KEY",
@@ -99,6 +108,100 @@ async function readObject(path: string): Promise<ObjectValue> {
             "A provider configuration file could not be read. Check permissions and JSON.",
         );
     }
+}
+
+/** The local CLIProxyAPI Antigravity credentials, one per signed-in account. */
+async function antigravityCredentials(dir: string): Promise<ObjectValue[]> {
+    let files: string[];
+
+    try {
+        files = await readdir(dir);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+            return [];
+        }
+
+        throw new Error("The Antigravity credential folder could not be read.");
+    }
+
+    const accounts: ObjectValue[] = [];
+
+    for (const file of files.sort()) {
+        if (!file.endsWith(".json")) {
+            continue;
+        }
+
+        const value = await readObject(join(dir, file));
+
+        if (
+            value.type === "antigravity" &&
+            typeof value.access_token === "string" &&
+            typeof value.project_id === "string"
+        ) {
+            const timestamp = number(value.timestamp);
+            const expiresIn = number(value.expires_in);
+
+            accounts.push({
+                type: "oauth",
+                access: value.access_token,
+                project: value.project_id,
+                ...(timestamp === undefined || expiresIn === undefined
+                    ? {}
+                    : { expires: timestamp + expiresIn * 1000 }),
+            });
+        }
+    }
+
+    return accounts;
+}
+
+/** Cursor SDK cloud-agent usage: billed tokens and cost, read-only. */
+async function cursorUsageFromSdk(apiKey: string): Promise<CursorUsageSummary> {
+    const sdk = join(homedir(), ".pi/agent/npm/node_modules/@cursor/sdk/dist/esm/index.js");
+    const { Agent } = (await import(sdk)) as {
+        Agent: {
+            list: (options: {
+                runtime: "cloud";
+                apiKey: string;
+                includeArchived: boolean;
+                limit: number;
+                cursor?: string;
+            }) => Promise<{ items: { agentId: string }[]; nextCursor?: string }>;
+            getUsage: (
+                agentId: string,
+                options: { apiKey: string },
+            ) => Promise<{
+                usage: { totalTokens: number };
+                cost?: { chargedCents: number };
+                runs: unknown[];
+            }>;
+        };
+    };
+    const summary: CursorUsageSummary = { agents: 0, tokens: 0, costCents: 0, runs: 0 };
+    let cursor: string | undefined;
+
+    do {
+        const page = await Agent.list({
+            runtime: "cloud",
+            apiKey,
+            includeArchived: true,
+            limit: 100,
+            ...(cursor === undefined ? {} : { cursor }),
+        });
+
+        for (const agent of page.items) {
+            const usage = await Agent.getUsage(agent.agentId, { apiKey });
+
+            summary.agents += 1;
+            summary.tokens += usage.usage.totalTokens;
+            summary.costCents += usage.cost?.chargedCents ?? 0;
+            summary.runs += usage.runs.length;
+        }
+
+        cursor = page.nextCursor;
+    } while (cursor !== undefined);
+
+    return summary;
 }
 
 function addWindow(row: ProviderUsage, label: string, used: unknown, resetsAt: unknown) {
@@ -236,6 +339,59 @@ export function normalizeUsage(id: string, raw: unknown): ProviderUsage {
         }
 
         row.message = "This API key only, not the whole account's credit balance.";
+    } else if (id === "cursor-admin") {
+        const members = Array.isArray(data.teamMemberSpend) ? data.teamMemberSpend : [];
+        let overallCents = 0;
+        let onDemandCents = 0;
+        let fastPremiumRequests = 0;
+
+        for (const value of members) {
+            const member = object(value);
+
+            overallCents += number(member.overallSpendCents) ?? 0;
+            onDemandCents += number(member.spendCents) ?? 0;
+            fastPremiumRequests += number(member.fastPremiumRequests) ?? 0;
+        }
+
+        if (members.length > 0) {
+            row.facts.push(`Team members: ${number(data.totalMembers) ?? members.length}`);
+            row.facts.push(`On-demand spend: $${(onDemandCents / 100).toFixed(2)}`);
+            row.facts.push(`Overall spend: $${(overallCents / 100).toFixed(2)}`);
+            row.facts.push(`Fast premium requests: ${fastPremiumRequests}`);
+
+            const cycle = text(data.subscriptionCycleStart);
+
+            if (cycle !== undefined) {
+                row.facts.push(`Billing cycle start: ${cycle}`);
+            }
+        }
+
+        row.message = "Cursor team usage from the Admin API; not individual IDE sessions.";
+    } else if (id.startsWith("gemini-bridge")) {
+        const groups = Array.isArray(data.groups) ? data.groups : [];
+
+        for (const value of groups) {
+            const group = object(value);
+            const label = text(group.displayName) ?? "Quota pool";
+            const buckets = Array.isArray(group.buckets) ? group.buckets : [];
+
+            for (const bucketValue of buckets) {
+                const bucket = object(bucketValue);
+                const remaining = number(bucket.remainingFraction);
+
+                if (remaining === undefined) {
+                    continue;
+                }
+
+                const window = text(bucket.window) ?? text(bucket.displayName) ?? "Allowance";
+                const used =
+                    Math.round(Math.max(0, Math.min(100, (1 - remaining) * 100)) * 10) / 10;
+
+                addWindow(row, `${label} · ${window}`, used, bucket.resetTime);
+            }
+        }
+
+        row.message = "Antigravity reports separate Gemini and Claude/GPT quota pools.";
     } else if (id === "github-copilot") {
         const quotas = object(data.quota_snapshots);
 
@@ -265,13 +421,19 @@ export function normalizeUsage(id: string, raw: unknown): ProviderUsage {
     return row;
 }
 
-async function requestUsage(url: string, headers: Record<string, string>, options: Options) {
+async function requestUsage(
+    url: string,
+    headers: Record<string, string>,
+    options: Options,
+    request: { method?: "GET" | "POST"; body?: string } = {},
+) {
     try {
         const response = await (options.fetch ?? fetch)(url, {
-            method: "GET",
+            method: request.method ?? "GET",
             headers: { Accept: "application/json", ...headers },
             redirect: "error",
             signal: AbortSignal.timeout(10_000),
+            ...(request.body === undefined ? {} : { body: request.body }),
         });
 
         if (!response.ok) {
@@ -540,6 +702,20 @@ export async function collectUsage(
         };
     }
 
+    const cursorCredential = object(credentials.cursor);
+
+    if (cursorCredential.type === "api_key") {
+        credentials["cursor-admin"] = cursorCredential;
+    }
+
+    const antigravity = await antigravityCredentials(
+        options.antigravityDir ?? join(homedir(), ".local/share/cliproxyapi/auths"),
+    );
+
+    antigravity.forEach((account, index) => {
+        credentials[index === 0 ? "gemini-bridge" : `gemini-bridge-${index + 1}`] = account;
+    });
+
     const totals = providerTotals(usage);
     const ids = [
         ...new Set([
@@ -568,6 +744,7 @@ export async function collectUsage(
             const expires = number(credential.expires);
             let url: string | undefined;
             let headers: Record<string, string> = {};
+            let request: { method?: "GET" | "POST"; body?: string } = {};
 
             if (oauth && token && (id === "anthropic" || id === "claude-bridge")) {
                 url = "https://api.anthropic.com/api/oauth/usage";
@@ -596,11 +773,19 @@ export async function collectUsage(
             } else if (id === "mistral" && key) {
                 row = unavailable(
                     id,
-                    "Mistral API keys have no usage or billing endpoint; see console.mistral.ai for the bill.",
+                    "Mistral API keys have no account usage endpoint; standard keys cannot read spend. See console.mistral.ai for the bill.",
                 );
             } else if (id === "openrouter" && key) {
                 url = "https://openrouter.ai/api/v1/key";
                 headers = { Authorization: `Bearer ${key}` };
+            } else if (id.startsWith("gemini-bridge") && oauth && token) {
+                url =
+                    "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary";
+                headers = { Authorization: `Bearer ${token}` };
+                request = {
+                    method: "POST",
+                    body: JSON.stringify({ project: credential.project }),
+                };
             } else if (
                 id === "github-copilot" &&
                 oauth &&
@@ -613,6 +798,41 @@ export async function collectUsage(
                     "User-Agent": "Pi-Pocket-Usage",
                     "X-GitHub-Api-Version": "2022-11-28",
                 };
+            }
+
+            if (id === "cursor-admin" && key) {
+                url = "https://api.cursor.com/teams/spend";
+                headers = {
+                    Authorization: `Basic ${Buffer.from(`${key}:`).toString("base64")}`,
+                };
+                request = { method: "POST", body: JSON.stringify({}) };
+            }
+
+            if (id === "cursor" && key) {
+                try {
+                    const summary = await (options.cursorUsage ?? cursorUsageFromSdk)(key);
+
+                    row =
+                        summary.agents === 0
+                            ? unavailable(id, "No Cursor cloud agents found for this API key.")
+                            : {
+                                  id,
+                                  status: "ok",
+                                  message: "Cursor SDK cloud-agent usage; not IDE usage.",
+                                  windows: [],
+                                  facts: [
+                                      `Cloud agents: ${summary.agents}`,
+                                      `Billed tokens: ${summary.tokens.toLocaleString("en-US")}`,
+                                      `Billed cost: $${(summary.costCents / 100).toFixed(2)}`,
+                                      `Runs: ${summary.runs}`,
+                                  ],
+                              };
+                } catch {
+                    row = unavailable(
+                        id,
+                        "Cursor usage could not be read with the SDK. Check the API key and network.",
+                    );
+                }
             }
 
             if (url !== undefined) {
@@ -628,9 +848,18 @@ export async function collectUsage(
                     );
                 } else {
                     try {
-                        row = normalizeUsage(id, await requestUsage(url, headers, options));
+                        row = normalizeUsage(
+                            id,
+                            await requestUsage(url, headers, options, request),
+                        );
                     } catch (error) {
-                        row = { ...row, status: "error", message: (error as Error).message };
+                        const message = (error as Error).message;
+
+                        if (id === "cursor-admin" && /^HTTP (401|403)\./.test(message)) {
+                            row = unavailable(id, "Cursor IDE usage needs a team admin API key.");
+                        } else {
+                            row = { ...row, status: "error", message };
+                        }
                     }
                 }
             }

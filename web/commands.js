@@ -297,29 +297,6 @@ const COMMANDS = [
                 : actions.configure({ cwd: pathFrom(arg) }),
     },
     {
-        name: "ponytail",
-        args: "[off|lite|full|ultra]",
-        description: "Set or show Ponytail mode (off, lite, full, ultra)",
-        run: async (arg) => {
-            const current = store.state.server?.ponytailMode ?? "full";
-
-            if (arg === "") {
-                return openSheet({ type: "ponytail" });
-            }
-
-            const mode = arg.toLowerCase().trim();
-
-            if (!["off", "lite", "full", "ultra"].includes(mode)) {
-                throw new Error(
-                    "Use /ponytail off, /ponytail lite, /ponytail full, or /ponytail ultra.",
-                );
-            }
-
-            await actions.setPonytailMode(mode);
-            notify("info", `Ponytail mode set to ${mode}.`);
-        },
-    },
-    {
         name: "plan",
         description: "Plan mode on or off: Pi reads and proposes, and changes nothing",
         available: () => planAvailable() && isSession(),
@@ -333,22 +310,6 @@ const COMMANDS = [
                     ? "Plan mode is on: Pi proposes a plan and changes nothing until you approve it."
                     : "Plan mode is off.",
             );
-        },
-    },
-    {
-        name: "auto-resume",
-        args: "[on|off]",
-        description: "Continue this chat automatically after a five-hour subscription usage reset",
-        available: isSession,
-        run: async (arg) => {
-            if (arg !== "" && arg !== "on" && arg !== "off") {
-                throw new Error("Use /auto-resume on or /auto-resume off.");
-            }
-
-            const on = arg === "" ? !store.state.view.usageResume?.on : arg === "on";
-
-            await actions.setUsageResume(on);
-            notify("info", `Auto-resume after usage reset is ${on ? "on" : "off"}.`);
         },
     },
     {

@@ -229,15 +229,6 @@ export class ConfigStore {
         this.save();
     }
 
-    get ponytailMode(): "off" | "lite" | "full" | "ultra" {
-        return this.#config.ponytailMode ?? "full";
-    }
-
-    setPonytailMode(mode: "off" | "lite" | "full" | "ultra"): void {
-        this.#config.ponytailMode = mode;
-        this.save();
-    }
-
     get disabledExtensions(): readonly string[] {
         return this.#config.disabledExtensions ?? [];
     }

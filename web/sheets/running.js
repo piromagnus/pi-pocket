@@ -106,16 +106,6 @@ export function RunningSheet() {
                         }
                         ${
                             steer &&
-                            task.kind === "pocket.usage-resume" &&
-                            html`<button
-                                class="link small"
-                                onClick=${() => attempt(() => api(`c/${task.conversationId}/usage-resume/stop`, { taskId: task.id }))}
-                            >
-                                Stop
-                            </button>`
-                        }
-                        ${
-                            steer &&
                             ["pocket.shell", "pocket.extension-command"].includes(task.kind) &&
                             html`<button
                                 class="link small"
