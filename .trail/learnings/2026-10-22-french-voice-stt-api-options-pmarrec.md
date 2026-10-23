@@ -4,16 +4,16 @@ author: Pmarrec
 date: 2026-10-22
 branch: main
 touches:
-  - AGENTS.md
-  - docs-site/src/sidebar.mjs
-  - docs/architecture.md
-  - docs/auto-resume.md
-  - docs/examples/provider-usage.ts
-  - docs/features.md
-  - docs/map.md
-  - docs/provider-usage.md
-  - src/server/app.ts
-  - src/server/config.ts
+    - AGENTS.md
+    - docs-site/src/sidebar.mjs
+    - docs/architecture.md
+    - docs/auto-resume.md
+    - docs/examples/provider-usage.ts
+    - docs/features.md
+    - docs/map.md
+    - docs/provider-usage.md
+    - src/server/app.ts
+    - src/server/config.ts
 ---
 
 ## Decided

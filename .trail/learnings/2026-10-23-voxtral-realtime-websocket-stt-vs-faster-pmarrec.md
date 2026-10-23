@@ -5,16 +5,16 @@ date: 2026-10-23
 branch: main
 cost: { minutes: 25 }
 touches:
-  - AGENTS.md
-  - README.md
-  - docs-site/src/sidebar.mjs
-  - docs/architecture.md
-  - docs/auto-resume.md
-  - docs/examples/provider-usage.ts
-  - docs/extensions/browser-modules.md
-  - docs/extensions/policies/api-stability.md
-  - docs/extensions/reference/host.md
-  - docs/extensions/reference/pocket.md
+    - AGENTS.md
+    - README.md
+    - docs-site/src/sidebar.mjs
+    - docs/architecture.md
+    - docs/auto-resume.md
+    - docs/examples/provider-usage.ts
+    - docs/extensions/browser-modules.md
+    - docs/extensions/policies/api-stability.md
+    - docs/extensions/reference/host.md
+    - docs/extensions/reference/pocket.md
 ---
 
 ## Decided
