@@ -110,6 +110,16 @@ Since 0.13.1 · Stable
 
 Why Pi cannot use a model now, in words that Pi can tell a person. For example, Pi Pocket does not know the model, its provider is not signed in, or its sign-in expired. It is `undefined` when Pi can use the model. With `fresh: true`, it asks the provider about the sign-in again first.
 
+### `registerWorkspaceProvider`
+
+```ts
+registerWorkspaceProvider(scheme: string, provider: WorkspaceProvider): () => void;
+```
+
+Registers an execution provider for workspace URIs such as `ssh://host/path`. `env(cwd)` must return promptly; providers can defer network work until execution. `resolveCwd` returns the canonical URI. Pi Pocket stores that URI in the session. It never falls back to the local filesystem when the provider is missing. The returned disposer removes only its own registration, so extension reloads can register a replacement before disposing the old version.
+
+Since 0.20.0 · Stable
+
 ### `registerModelProvider`
 
 ```ts
@@ -135,6 +145,17 @@ Two things to know about how Pi refreshes models.
 First, registration refreshes models locally only. A provider whose catalog comes from `refreshModels` alone shows no models until a network refresh, as with the app's **Refresh models** action. To look right away, ship a fallback list: a small static `models` with the provider's most common models. The network pass replaces it.
 
 Second, every refresh, even a local one, calls `refreshModels`. When `allowNetwork` is false, return the models you have: `stored?.models ?? []`, or another fallback list. Returning `[]` empties the provider in Pi until the next network pass, because an empty list still counts as the provider's answer.
+
+### `WorkspaceProvider`
+
+```ts
+interface WorkspaceProvider {
+    env(cwd: string): ExecutionEnv;
+    resolveCwd(cwd: string, signal?: AbortSignal): Promise<string>;
+}
+```
+
+An execution provider for one URI scheme. `env` receives the stored canonical URI, not the environment's remote filesystem cwd. Keep remote filesystem access inside the returned environment.
 
 ### `shapeModelRequests`
 

@@ -266,6 +266,12 @@ What a browser shows is its person's choice of theme (`look`) and colors (`theme
 - Extensions' API: `web` on the server and `pocket` in the browser, at `POCKET_API`. Modules outside this repository depend on them: add to them freely, and change what they do only with a new version.
 - `ATTACHMENTS_HEADING` and `splitAttachments` (which also reads the form sent before 0.14.0), which `ui.js` repeats from `entry-format.ts`.
 
+## Remote workspaces
+
+An enabled drop-in can register a URI scheme with `host.registerWorkspaceProvider`. A conversation stores its canonical URI in its existing agent cwd; no SSH credentials enter the session document. The harness and shell select that provider’s `ExecutionEnv` at each use. Unknown or disabled schemes throw instead of selecting the local environment. Registration disposers remove only their own generation. Session creation resolves the directory before admission, and owner-only `request.createSession` rechecks request authorization around that wait. Local project-resource loading, Files/Git actions, artifact path reads and managed worktrees must not interpret a remote URI as a local path.
+
+The optional SSH Sessions drop-in uses `pi-env` over the system SSH client, pins independently accepted host keys in its own known-hosts file, and closes its daemon connections when disposed. Models and history remain on Pocket. Its remote prompt wrappers load remote project instructions and identify the real host and path; native Files/Git panels and automatic web-port forwarding are not remote-enabled. See the [extension README](../extensions/ssh-sessions/README.md).
+
 ## Checking a change
 
 **Web access.** The HTTP API and built-in extension use `WebAccessManager` instances

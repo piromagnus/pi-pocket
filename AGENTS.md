@@ -11,6 +11,11 @@ Pi Pocket is often edited from inside itself, while it runs. [docs/map.md](docs/
 - Code style is Prettier (`.prettierrc.json`: 4 spaces, 100 columns) plus ESLint's layout rules (`eslint.config.js`): braces on every `if` and loop, and a blank line after declarations, around blocks, and before `return` and `throw`. Run `npm run format` after editing. Prettier leaves the markup in `html` templates alone, so lay it out by hand the same way: 4 spaces per level, and a tag that runs past 100 columns gets one attribute per line and its children on their own lines. In htm a line break is not a space: break only where there is no space, or between tags, never inside running text.
 - Run `npm run check`, `npm run lint`, and `npm test` after server changes.
 
+## Licensing and gallery attribution
+
+- For new projects or extensions created for the owner, include a `LICENSE` file naming **Pierre Marrec** as the author/copyright holder. Preserve existing third-party licenses and copyright notices.
+- When publishing a new extension to the gallery, set its author metadata to **Pierre Marrec**.
+
 <!-- trail:start -->
 
 ## Trail — repo context graph

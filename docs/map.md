@@ -141,6 +141,10 @@ A module split into parts keeps its name for the part others import, with the re
 
 Outside `src/`: `flake.nix` and `nix/` build Pi Pocket with Nix (`nix/package.nix`) and run it as a NixOS service (`nix/module.nix`, with `nix/manage-extensions.sh` to copy declared drop-ins). `nix/tests/` runs only under Nix; `npm test` skips it. The container build is `docker/Dockerfile` and `docker/entrypoint.sh` (with `.dockerignore` for the build context), `docker-compose.yml` runs it, and `.env.example` lists the host-side variables for Compose; [docker.md](docker.md) explains them.
 
+## Optional SSH workspaces
+
+`extensions/ssh-sessions/` contains the owner-installed SSH Sessions drop-in, its browser page, tests, and pinned `pi-env` runtime. `PocketApp.registerWorkspaceProvider` selects an `ExecutionEnv` from the stored workspace URI; absent providers fail closed. Owner-only extension requests can create ordinary sessions through `request.createSession`. `Commands` and linked sessions resolve remote cwd through the provider. Local Files/Git and Pocket-managed worktrees reject URI workspaces. The [extension README](../extensions/ssh-sessions/README.md) covers installation, host-key verification and version 1 limits.
+
 ## Optional providers: `src/server/claude-bridge/`
 
 `module.ts` builds the owner-installed Claude Bridge drop-in, with Durable hooks that associate provider session IDs with conversation folders. `provider.ts` owns the worker processes and IPC streams; `worker.ts` runs the pinned upstream provider in each fixed folder. `catalogue.ts` supplies model metadata with an owner-requested 1M ceiling for all listed models, including Haiku 5.5. This is not a guarantee of model support or subscription entitlement. `upstream.ts` compiles the reviewed provider and preserves its prompt guards; `authentication.ts` and `protocol.ts` enforce subscription-login/environment checks. [claude-bridge.md](claude-bridge.md) describes installing the helpers under the data folder's `extensions/_claude-bridge/` and enabling the module. There is no AskClaude tool or built-in module enabled by default.

@@ -1,7 +1,7 @@
 --- a/subscription-usage.ts
 +++ b/subscription-usage.ts
 @@ -4,7 +4,9 @@
-  * or token reaches the browser.
+  * asks each service with the sign-ins already on this machine, so no key or token reaches the browser.
   */
  import { type ChildProcess, spawn } from "node:child_process";
 +import { readFile } from "node:fs/promises";
@@ -10,7 +10,7 @@
  import { createInterface } from "node:readline";
  import { ModelRuntime } from "@earendil-works/pi-coding-agent";
  // A type import is gone when the module runs: only the type checker reads this path.
-@@ -261,8 +263,8 @@
+@@ -315,8 +317,8 @@
  export default function createSubscriptionUsage(_host: unknown, web: ExtensionWeb) {
      // Pi's own models and sign-ins: `getAuth` renews an expiring subscription token under Pi's lock, as Pi does.
      let runtime: Promise<ModelRuntime> | undefined;
@@ -21,8 +21,8 @@
      // Turning the module off, or a new version of it, stops the reads still running, and Codex with them: the module
      // is gone once every Codex it started ended (one that ignores being asked to stop is killed after 2 s).
      const alive = new AbortController();
-@@ -304,18 +306,66 @@
-         return key;
+@@ -365,18 +367,66 @@
+         return found.key;
      };
  
 -    async function claude(signal: AbortSignal): Promise<Report> {
@@ -92,7 +92,7 @@
                  throw answered(response.status);
              }
  
-@@ -362,18 +412,21 @@
+@@ -423,18 +473,21 @@
              }
  
              return {
@@ -116,19 +116,23 @@
          }
      }
  
-@@ -493,31 +546,43 @@
+@@ -932,11 +985,11 @@
      }
  
      /** Every service at once, each on its own: one that fails leaves the others' answers. */
 -    const read = async () => {
 +    const read = async (source: string) => {
          const signal = AbortSignal.any([AbortSignal.timeout(TIMEOUT_MS), alive.signal]);
--        const reports = await Promise.all([claude(signal), chatGpt(signal), openCodeGo(signal)]);
-+        const reports = await Promise.all([
-+            claude(signal, source),
-+            chatGpt(signal),
-+            openCodeGo(signal),
-+        ]);
+         const reports = (
+             await Promise.all([
+-                claude(signal),
++                claude(signal, source),
+                 chatGpt(signal),
+                 openCodeGo(signal),
+                 grok(signal),
+@@ -949,27 +1002,35 @@
+             // The plans that answered first, each group in its own order: what failed goes to the end.
+             .sort((a, b) => Number(b.ok) - Number(a.ok));
  
 -        last = { at: Date.now(), reports };
 +        const result = { at: Date.now(), reports };
@@ -189,7 +193,7 @@
  /** A reset further away than this shows its date, not only its weekday. */
  const NEAR_MS = 6 * 86_400_000;
  /** The words for a level that needs a look, shown in the limit's line of details. An "ok" level has none. */
-@@ -102,7 +111,7 @@
+@@ -118,7 +127,7 @@
  }
  
  export default function setup(pocket) {
@@ -198,7 +202,7 @@
  
      pocket.style("look.css");
  
-@@ -204,46 +213,82 @@
+@@ -255,46 +264,82 @@
  
      /** The page: loading, then one list of plans, or what went wrong, with Refresh. Reads again every minute. */
      function Usage() {
@@ -287,12 +291,12 @@
                  <div class="su-state" role="alert">
                      <${Icon} path=${ALERT} size=${16} />
                      <div class="su-state-text">
-@@ -265,16 +310,21 @@
+@@ -316,17 +361,22 @@
  
          if (!data) {
              return html`<div class="su" aria-busy="true">
 +                ${sourceControl}
-                 <${Loader} label="Asking Claude, ChatGPT, and OpenCode Go" />
+                 <${Loader} label="Asking your plans" />
              </div>`;
          }
  
@@ -304,13 +308,14 @@
 +        });
          const iso = Number.isFinite(read.getTime()) ? read.toISOString() : undefined;
          const { top, next } = glance(data);
+         const wallet = (data.reports ?? []).find((report) => report.ok && report.balance);
  
          return html`<div class="su" aria-busy=${busy ? "true" : undefined}>
 +            ${sourceControl}
              <div class="su-fetch">
                  <pre class="su-glyph" aria-hidden="true">${GLYPH}</pre>
                  <div class="su-info">
-@@ -371,6 +421,7 @@
+@@ -433,6 +483,7 @@
          keywords: [
              "anthropic",
              "claude",
@@ -318,7 +323,7 @@
              "openai",
              "chatgpt",
              "codex",
-@@ -383,17 +434,22 @@
+@@ -453,17 +504,22 @@
      });
  
      // A reading in the background for the badge, while this tab is open; the server keeps answers a minute.

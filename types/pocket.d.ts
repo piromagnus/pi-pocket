@@ -23,6 +23,7 @@ import type {
     ModelRef,
     Tx,
 } from "@earendil-works/pi-durable";
+import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import type { ComponentType, Fragment, FunctionComponent, h, VNode } from "preact";
 import type {
     useCallback,
@@ -93,6 +94,14 @@ export interface Module {
 }
 
 // ─── The host ────────────────────────────────────────────────────────────────
+
+/** An execution provider for a workspace URI scheme. */
+export interface WorkspaceProvider {
+    /** Creates an execution environment for a workspace URI without eager network work. */
+    env(cwd: string): ExecutionEnv;
+    /** Resolves a workspace URI to its canonical URI. */
+    resolveCwd(cwd: string, signal?: AbortSignal): Promise<string>;
+}
 
 /**
  * What the app gives a module: the first argument of its default export. The host stays the same while modules reload.
@@ -166,6 +175,8 @@ export interface Host {
      * @experimental
      */
     registerModelProvider(provider: string, config: ProviderConfig): () => void;
+    /** Registers a workspace URI scheme; the returned disposer removes only this registration. @since 0.20.0 */
+    registerWorkspaceProvider(scheme: string, provider: WorkspaceProvider): () => void;
     /**
      * Shapes the request every model call sends: `shape` returns a replacement payload, or undefined to keep it. It runs
      * after Pi and the caller shaped the request, closest to the wire. The return value stops the shaping.
@@ -472,6 +483,8 @@ export interface WebRequest {
      * @since 0.14.0
      */
     readonly signal: AbortSignal;
+    /** Starts an ordinary owner-owned session without sending a message or starting model work. @since 0.20.0 */
+    createSession(request: { cwd: string; title?: string }): Promise<{ id: number }>;
     /**
      * Fresh committed document reads; use this request's context.
      * @since 0.16.0

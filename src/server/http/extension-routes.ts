@@ -120,6 +120,8 @@ export async function extensionRoute(
             body,
             user: { id: current.id, name: current.name, role: current.role },
             signal: clientCancelled.signal,
+            createSession: (request: { cwd: string; title?: string }) =>
+                scope.createSession(request),
             context: scope.context,
             snapshot: scope.snapshot,
             commit: scope.commit,

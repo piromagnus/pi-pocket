@@ -10,6 +10,7 @@ import type {
     TaskId,
     Tx,
 } from "@earendil-works/pi-durable";
+import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Browsers } from "./browser.ts";
 import type { Gallery } from "./gallery.ts";
@@ -24,6 +25,12 @@ import type { Schedules } from "./schedules.ts";
 import type { RepoWatches } from "./repo-watches.ts";
 import type { Watches } from "./watches.ts";
 import type { FetchPublic } from "./public-fetch.ts";
+
+/** An execution environment provider for a workspace URI scheme. */
+export interface WorkspaceProvider {
+    env(cwd: string): ExecutionEnv;
+    resolveCwd(cwd: string, signal?: AbortSignal): Promise<string>;
+}
 
 /** A session linked to another, as `host.linkedSessions.list` gives it to the session that asks. */
 export interface LinkedSession {
@@ -264,6 +271,8 @@ export interface PocketHost {
      * that is not the last one changes nothing.
      */
     registerModelProvider(provider: string, config: ProviderConfig): () => void;
+    /** Register a workspace URI scheme; disposal removes only this registration. */
+    registerWorkspaceProvider(scheme: string, provider: WorkspaceProvider): () => void;
     /**
      * Shape the request every model call sends: `shape` returns a replacement payload, or undefined to keep it. It runs
      * after Pi and the caller shaped the request, closest to the wire. Returns how to stop shaping. Only the modules
@@ -395,6 +404,8 @@ export interface WebRequest {
     readonly user: { readonly id: string; readonly name: string; readonly role: Role };
     /** Aborted when the browser stops waiting for the answer. */
     readonly signal: AbortSignal;
+    /** Start an ordinary owner-owned session without sending a message or starting model work. */
+    createSession(request: { cwd: string; title?: string }): Promise<{ id: number }>;
     /** Fresh committed document reads. Use the request's context. */
     readonly snapshot: DocumentReader["snapshot"];
     readonly context: Context;

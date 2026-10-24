@@ -53,15 +53,16 @@ Claude Bridge sign-in. Open it and choose **Claude sign-in → Claude Bridge (Cl
 **Pi (Anthropic)** option remains the default. The selection is remembered in this browser; each source
 has its own cached result.
 
-This local addition is based on official `pocket-subscription-usage` v1.1.0, commit
-`d5b4107aabc6c201918518638ebe68a4e79e5446`. It reads Claude Code's `.credentials.json` from
+This local addition is based on official `pocket-subscription-usage` v1.2.0, commit
+`d350af8b0b96993d1d22cb4747db0e9471ae8836`. It reads Claude Code's `.credentials.json` from
 `CLAUDE_CONFIG_DIR` or `~/.claude`, sends its token only to Anthropic's usage endpoint, and never sends
 credentials to the browser. An expired sign-in needs refreshing in Claude Code with `claude auth login`;
 this extension does not refresh or change credentials. OS keychain credentials are not supported.
 
 The installed files are in `~/.pi-pocket/extensions/subscription-usage.ts` and
-`~/.pi-pocket/extensions/subscription-usage/`. Their originals are backed up in
-`~/.pi-pocket/backups/subscription-usage-2026-10-22-before-claude-bridge/`.
+`~/.pi-pocket/extensions/subscription-usage/`. The v1.2.0 originals are backed up in
+`~/.pi-pocket/backups/subscription-usage-2026-10-23-v1.2.0-original/`, and the previous patched
+v1.1.0 in `~/.pi-pocket/backups/subscription-usage-2026-10-23-v1.1.0-claude-bridge/`.
 The [local patch](examples/subscription-usage-claude-bridge.patch) preserves the customization against
 the upstream version; an accepted gallery update can replace it. Gallery metadata stays unchanged
 so Pocket can identify the local edits. After reviewing an update, reapply the compatible changes and

@@ -157,6 +157,7 @@ interface WebRequest {
     readonly body: Readonly<Record<string, unknown>>;
     readonly user: Person;
     readonly signal: AbortSignal;
+    createSession(request: { cwd: string; title?: string }): Promise<{ id: number }>;
     readonly snapshot: DocumentReader["snapshot"];
     readonly context: Context;
     commit<T>(change: (tx: Tx) => T | Promise<T>): Promise<T>;
@@ -174,6 +175,7 @@ What a handler gets.
 - `body`: the JSON object that the browser sent. It is empty for GET and DELETE.
 - `user`: the person who asked, as `{ id, name, role }`.
 - `signal`: it aborts when the browser stops waiting for the answer, not on normal handler return. Give it to the work that the handler waits for.
+- `createSession`: available only on owner-only routes. It rechecks owner access before and after resolving `cwd`, honors request cancellation, and creates an ordinary session without sending a message or starting model work.
 - Since 0.16.0, `snapshot` reads fresh committed documents with `context`. Its `context.abortSignal` is cancelled on disconnect or handler return, independently of the older `signal`. `commit` changes the module's own documents atomically and returns the callback's answer. Follow the `x.<module>.…` naming rule. Viewers cannot commit, even through a GET open to `view`.
 - Document operations recheck the current person. Retaining a request, its context, or a callback does not extend its lifetime: commits after disconnect or handler return are refused, and an unfinished callback rolls back. Await all writes before returning. These APIs are for module documents, not core's internal documents or a way to start model work.
 - An unbound catalog save has no source plan, turn, or spend checks. A bound commit also requires the source's current steering and turn rights.

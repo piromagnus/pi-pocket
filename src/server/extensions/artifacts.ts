@@ -226,6 +226,13 @@ async function publish(
 
             type = inferred;
             const agent = await api.agent(context);
+
+            if (/^(?![a-z]:[\\/])[a-z][a-z0-9+.-]*:/i.test(agent.cwd ?? "")) {
+                throw new Error(
+                    "Reading a local artifact path is not available in a remote workspace.",
+                );
+            }
+
             const path = resolve(agent.cwd ?? process.cwd(), expandHome(args.path));
 
             content = await readArtifact(path);

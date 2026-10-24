@@ -103,9 +103,10 @@ async function fixture(
 test("Claude Bridge uses Claude Code credentials and keeps tokens out of reports", async (t) => {
     const f = await fixture(t);
     const response = await f.read("bridge");
-    const report = response.reports[0];
+    // v1.2.0 sorts ok answers first, so find the report by id instead of trusting reports[0].
+    const report = response.reports.find((entry: any) => entry.id === "claude-bridge");
 
-    assert.equal(report.id, "claude-bridge");
+    assert.ok(report);
     assert.equal(report.ok, true);
     assert.equal(report.limits[0].percent, 25);
     assert.equal(
@@ -114,7 +115,8 @@ test("Claude Bridge uses Claude Code credentials and keeps tokens out of reports
     );
     assert.equal(f.authCalls.includes("anthropic"), false);
     assert.equal(JSON.stringify(response).includes("fake-bridge-token"), false);
-    assert.equal(response.reports.length, 3);
+    // Six answers with these fixtures: Grok stays out because its sign-in is not OAuth.
+    assert.equal(response.reports.length, 6);
 });
 
 test("Pi remains the default and source-specific caches never mix sign-ins", async (t) => {
@@ -148,9 +150,12 @@ for (const [label, credentials] of [
     test(`${label} Claude Code credentials fail without leaking secrets or sending an Anthropic request`, async (t) => {
         const f = await fixture(t, credentials);
         const response = await f.read("bridge");
+        // v1.2.0 sorts ok answers first: find the failed bridge report by id.
+        const report = response.reports.find((entry: any) => entry.id === "claude-bridge");
 
-        assert.equal(response.reports[0].ok, false);
-        assert.match(response.reports[0].error, /claude auth login/);
+        assert.ok(report);
+        assert.equal(report.ok, false);
+        assert.match(report.error, /claude auth login/);
         assert.equal(
             /secret-invalid-json|fake-expired-secret/.test(JSON.stringify(response)),
             false,
