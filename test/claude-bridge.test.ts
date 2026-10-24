@@ -43,6 +43,7 @@ import {
 import {
     bridgeModels,
     ClaudeBridgeProvider,
+    workerCwd,
 } from "../extensions/provider-bridges/_claude-bridge-public/provider.ts";
 import { compileBridge } from "../extensions/provider-bridges/_claude-bridge-public/upstream.ts";
 import { response } from "./fixtures/claude-bridge-worker.ts";
@@ -1370,4 +1371,15 @@ test("mock SDK MCP tool calls/results roundtrip on one parked upstream query", a
         { content: [{ type: "text", text: "Pocket executed sdk-call-2" }], isError: false },
     ]);
     assert.equal(f.upstream.__test.activeQueryContexts.size, 0);
+});
+
+test("a remote session's folder (ssh://host/path) starts its worker in a local folder, never in the URI", () => {
+    const local = workerCwd("ssh://hextech/home/pierre");
+
+    assert.ok(!local.includes("://"));
+    assert.equal(
+        fork("-e", [], { cwd: local, stdio: ["ignore", "ignore", "ignore", "ipc"] }).kill(),
+        true,
+    );
+    assert.equal(workerCwd("/home/pierre/project"), "/home/pierre/project");
 });

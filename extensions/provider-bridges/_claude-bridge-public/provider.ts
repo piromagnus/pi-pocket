@@ -1,6 +1,9 @@
 /** A Durable-facing provider: upstream Claude runs in one isolated process per provider session. */
 import { fork, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
     createAssistantMessageEventStream,
     type Api,
@@ -61,9 +64,25 @@ function failure(model: Model<Api>, message: string, aborted = false): Assistant
     };
 }
 
+/**
+ * A remote session's folder is a URI (`ssh://host/path`), not a local path, and a worker cannot start in it. Pocket runs
+ * every tool itself, so the worker only needs some local folder to start in.
+ */
+export function workerCwd(cwd: string): string {
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(cwd)) {
+        return cwd;
+    }
+
+    const directory = join(tmpdir(), `pocket-claude-bridge-${process.getuid?.() ?? "user"}`);
+
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+
+    return directory;
+}
+
 function spawnWorker(compiled: string, cwd: string, executable?: string): ChildProcess {
     return fork(new URL("./worker.ts", import.meta.url), [compiled, executable ?? ""], {
-        cwd,
+        cwd: workerCwd(cwd),
         serialization: "advanced",
         stdio: ["ignore", "ignore", "ignore", "ipc"],
         execArgv: ["--experimental-strip-types"],
