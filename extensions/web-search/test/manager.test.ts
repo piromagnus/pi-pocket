@@ -57,13 +57,14 @@ async function fixture() {
     return { manager, directory };
 }
 
-test("web providers ignore auth files, subscription tokens and key commands", async () => {
+test("auth fallback accepts API keys, rejects subscription tokens, and treats keys as text", async () => {
     const directory = await mkdtemp(join(root, "web-auth-"));
-    const manager = new WebAccessManager(directory, transport);
+    const agentDir = join(directory, "agent");
+    const manager = new WebAccessManager(directory, { ...transport, agentDir });
 
-    await mkdir(join(directory, "agent"));
+    await mkdir(agentDir);
     await writeFile(
-        join(directory, "agent/auth.json"),
+        join(agentDir, "auth.json"),
         JSON.stringify({
             openai: { type: "oauth", access: "private-oauth-token" },
             "openai-codex": { type: "oauth", access: "private-codex-token" },
@@ -72,10 +73,8 @@ test("web providers ignore auth files, subscription tokens and key commands", as
         }),
     );
     assert.deepEqual(await manager.resolveKey("openai"), { source: "none" });
-    assert.deepEqual(await manager.resolveKey("exa"), { source: "none" });
-    assert.deepEqual(await manager.resolveKey("brave"), {
-        source: "none",
-    });
+    assert.equal((await manager.resolveKey("exa")).source, "auth.json");
+    assert.equal((await manager.resolveKey("brave")).source, "auth.json");
 });
 
 const jsonResponse = (data: unknown) =>

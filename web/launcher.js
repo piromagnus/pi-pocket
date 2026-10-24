@@ -440,12 +440,6 @@ function actionItems() {
             icon: "key",
             run: () => openSheet({ type: "providers" }),
         },
-        me?.role === "owner" && {
-            label: "Web access",
-            detail: "Tavily, Exa, Brave…",
-            icon: "globe",
-            run: () => openSheet({ type: "web-access" }),
-        },
         modelRefreshAvailable() && {
             label: "Refresh models",
             detail: store.state.modelRefresh.loading

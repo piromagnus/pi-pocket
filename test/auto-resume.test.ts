@@ -4,6 +4,7 @@ import {
     type App,
     cleanUp,
     context,
+    installAutoResume,
     lastText,
     modelTexts,
     newSession,
@@ -49,8 +50,10 @@ type Scenario = {
     continuationFails: (fails: boolean) => void;
 };
 
-async function scenario(run: (state: Scenario) => Promise<void>) {
+async function scenario(run: (state: Scenario) => Promise<void>, enable = true) {
     const dataDir = join(root, `auto-resume-${++serial}`);
+
+    installAutoResume(dataDir);
     let offset = 0;
     let fails = false;
     let recovering = 0;
@@ -71,6 +74,22 @@ async function scenario(run: (state: Scenario) => Promise<void>) {
     });
     const clock = () => Date.now() + offset;
     let app = await openApp(model, dataDir, clock);
+
+    // Keep the upstream request gate out of these extension-level tests.
+    await app.setLimitWaitHours(owner(app), 0);
+
+    if (enable) {
+        await app.setExtensionEnabled(owner(app), "auto-resume.ts", true);
+    }
+
+    const autoResume = (await app.extensions(owner(app))).modules.find(
+        (module) => module.file === "auto-resume.ts",
+    );
+
+    assert.equal(autoResume?.source, "drop-in");
+    assert.equal(autoResume?.enabled, enable);
+    assert.equal(autoResume?.error, undefined);
+
     const id = await newSession(app);
 
     const state: Scenario = {
@@ -127,6 +146,29 @@ test("off by default: a limit leaves the chat stopped", async () => {
         await restart(40);
         assert.equal(await continuations(), 0);
     });
+});
+
+test("the disabled drop-in leaves Scheduled messages active and does not resume a failed chat", async () => {
+    await scenario(async ({ app, id, pending }) => {
+        const modules = (await app().extensions(owner(app()))).modules;
+
+        assert.equal(modules.find((module) => module.file === "auto-resume.ts")?.enabled, false);
+        assert.equal(modules.find((module) => module.file === "schedules.ts")?.enabled, true);
+
+        const ordinary = await app().schedules.add(id, {
+            when: "in 1h",
+            text: "ordinary scheduled message",
+            key: "test:ordinary",
+        });
+
+        await say(app(), id, "limit me");
+
+        assert.deepEqual(await pending(), []);
+        assert.equal(
+            (await app().schedules.list(id)).some((item) => item.id === ordinary.id),
+            true,
+        );
+    }, false);
 });
 
 test("a limit with a reset time continues once after it, as the person's work, and then stops", async () => {

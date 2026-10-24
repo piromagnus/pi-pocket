@@ -55,6 +55,7 @@ const Catalog = defineDoc({
     kind: "x.workspace.catalog",
     version: 1,
     scope: "session",
+    checkpointWhen: () => false,
     initial: () => ({ saved: 0 }),
 });
 
@@ -105,7 +106,7 @@ before(async () => {
         join(dropIns, "workspace.ts"),
         `/** Workspace: request-bound test routes. */
 import { defineDoc } from "@earendil-works/pi-durable";
-const Catalog = defineDoc({ kind: "x.workspace.catalog", version: 1, scope: "session", initial: () => ({ saved: 0 }) });
+const Catalog = defineDoc({ kind: "x.workspace.catalog", version: 1, scope: "session", checkpointWhen: () => false, initial: () => ({ saved: 0 }) });
 export default function(host, web) {
     globalThis.workspaceHost = host;
     web.route("GET", "catalog", async req => {
@@ -258,10 +259,10 @@ test("a browser module loads for the people it is for, and its folder serves onl
     const panelUrl = ownerUi.find((each) => each.module === "panel")!.url;
     const soloUrl = ownerUi.find((each) => each.module === "solo")!.url;
 
-    // Panel's is for everyone with every session, as the built-in auto-resume's is; Solo's for the owner alone.
+    // Panel's is for everyone with every session; Solo's for the owner alone.
     assert.deepEqual(
         (await uiFor("Vic")).map((each) => each.module),
-        ["auto-resume", "panel"],
+        ["panel"],
     );
     assert.deepEqual(await uiFor("Sid"), []);
 

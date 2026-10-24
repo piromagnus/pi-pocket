@@ -3,7 +3,9 @@
  * with Pi. Providers share no error code, so this reads the response's own status and limit headers first, then the
  * error's words. Sources for each format are in `test/usage-limits.test.ts`.
  */
-import type { ProviderLimit } from "../provider-limits.ts";
+import type { ResponseLimit } from "./_pocket.d.ts";
+
+type ProviderLimit = ResponseLimit;
 
 /** Friendly reset times are rounded, and clocks differ: wait a little longer than the provider says. */
 export const RESET_GRACE_MS = 60_000;

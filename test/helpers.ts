@@ -1,14 +1,16 @@
 // What the server tests share: an isolated Pi install and data folder, a scripted model, and small helpers. Import
 // this before anything from src/: it points Pi's config at a temporary folder first.
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { FauxResponseStep } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
 import { type ConversationId, UsageDoc } from "@earendil-works/pi-durable";
 import type { Attachment } from "../src/server/commands.ts";
 import type { User } from "../src/server/config.ts";
+import type { LimitTuning } from "../src/server/limit-gate.ts";
 import type { Client } from "../src/server/room.ts";
 
 export const context = BACKGROUND_CONTEXT;
@@ -28,6 +30,18 @@ mkdirSync(home);
 const { PocketApp } = await import("../src/server/app.ts");
 
 export type App = Awaited<ReturnType<typeof PocketApp.open>>;
+
+/** Install the repository-owned auto-resume drop-in into an isolated test data folder. */
+export function installAutoResume(dataDir: string): void {
+    const source = fileURLToPath(new URL("../extensions/auto-resume/", import.meta.url));
+    const destination = join(dataDir, "extensions");
+
+    mkdirSync(destination, { recursive: true });
+
+    for (const file of ["auto-resume.ts", "auto-resume.js", "_usage-limits.ts"]) {
+        copyFileSync(join(source, file), join(destination, file));
+    }
+}
 
 /** The text of the newest message a model request carries, and who sent it. */
 export function lastText(context: { messages: readonly { role: string; content: unknown }[] }): {
@@ -72,6 +86,7 @@ export function openApp(
     model: ReturnType<typeof scriptedModel>,
     dataDir = join(root, "data"),
     now?: () => number,
+    limits?: Partial<LimitTuning>,
 ): Promise<App> {
     return PocketApp.open({
         dataDir,
@@ -81,6 +96,7 @@ export function openApp(
         configureModels: (models) => models.registerNativeProvider(model.provider),
         home,
         ...(now === undefined ? {} : { now }),
+        ...(limits === undefined ? {} : { limits }),
     });
 }
 

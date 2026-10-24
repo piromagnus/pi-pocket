@@ -95,6 +95,21 @@ test("every streamed request records its response, and the caller's own callback
     );
     assert.deepEqual(seen, [429]);
     assert.equal(limits.all().mistral!.limited!.headers["x-ratelimit-remaining-req-minute"], "0");
+    models.streamSimple(
+        { provider: "gemini-bridge", api: "openai-completions" } as never,
+        { messages: [] },
+        {
+            onResponse: (response) => {
+                seen.push(response.status);
+            },
+        },
+    );
+    await (streamed!.onResponse as (...args: unknown[]) => Promise<void>)(
+        { status: 429, headers: { "retry-after": "60" } },
+        { provider: "gemini-bridge" },
+    );
+    assert.deepEqual(seen, [429, 429]);
+    assert.equal(limits.all()["gemini-bridge"]!.limited!.headers["retry-after"], "60");
 });
 
 test("concurrent streams correlate their own response headers, never another chat's provider-wide sample", async () => {

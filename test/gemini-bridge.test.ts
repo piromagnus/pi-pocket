@@ -15,7 +15,11 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, test, type TestContext } from "node:test";
 import { normalizeContext, Type, type Model } from "@earendil-works/pi-ai";
-import { GeminiBridge, subscriptionProxyKey } from "../src/server/gemini-bridge.ts";
+import {
+    createGeminiBridgeModule,
+    GeminiBridge,
+    subscriptionProxyKey,
+} from "../extensions/provider-bridges/gemini-bridge.ts";
 
 const MODEL = "gemini-3.8-flash-high";
 const KEY = "offline-local-proxy-key";
@@ -128,6 +132,36 @@ async function fixture(t: TestContext) {
 
     return { bridge, registration, model, state, directory, configPath, baseUrl };
 }
+
+test("module cleanup closes its dispatcher even when provider removal throws", async (t) => {
+    const f = await fixture(t);
+    const close = GeminiBridge.prototype.close;
+    let closed = 0;
+    let dispose: (() => unknown) | undefined;
+
+    GeminiBridge.prototype.close = async function () {
+        closed++;
+        await close.call(this);
+    };
+
+    t.after(() => {
+        GeminiBridge.prototype.close = close;
+    });
+
+    const create = createGeminiBridgeModule({ baseUrl: f.baseUrl, configPath: f.configPath });
+
+    await create(
+        {
+            registerModelProvider: () => () => {
+                throw new Error("unregister failed");
+            },
+        } as never,
+        { onDispose: (run: () => unknown) => (dispose = run) } as never,
+    );
+
+    await assert.rejects(async () => dispose?.(), /unregister failed/);
+    assert.equal(closed, 1);
+});
 
 test("subscription guard refuses credits, substitution, paid backends, aliases, and missing local keys", () => {
     assert.equal(subscriptionProxyKey(config()), KEY);
@@ -533,7 +567,8 @@ test("owner-enabled module keeps Durable tools, guards, and model choice across 
     const cwd = join(f.directory, "work");
     const outputPath = join(cwd, "bridge-output.txt");
     const forbiddenPath = join(cwd, "must-not-exist");
-    const helper = new URL("../src/server/gemini-bridge.ts", import.meta.url).pathname;
+    const helper = new URL("../extensions/provider-bridges/gemini-bridge.ts", import.meta.url)
+        .pathname;
 
     await mkdir(dropIns, { recursive: true });
     await mkdir(cwd);
@@ -542,10 +577,8 @@ test("owner-enabled module keeps Durable tools, guards, and model choice across 
         `/** Offline Gemini subscription bridge and guard fixture. */
 import { defineExtension, hook, ToolTask } from "@earendil-works/pi-durable";
 import { createGeminiBridgeModule } from ${JSON.stringify(helper)};
-const bridge = createGeminiBridgeModule(${JSON.stringify({ baseUrl: f.baseUrl, configPath: f.configPath })});
-export const providers = bridge.providers;
-export const dispose = bridge.dispose;
-export default () => [bridge.extension(), defineExtension({
+const createBridge = createGeminiBridgeModule(${JSON.stringify({ baseUrl: f.baseUrl, configPath: f.configPath })});
+export default async (host, web) => [await createBridge(host, web), defineExtension({
     name: "offline-gemini-guard",
     hooks: [hook(ToolTask, { beforeTool: call => call.name === "bash" ? { block: "Offline Pocket guard blocked shell" } : undefined })],
 })];
@@ -596,10 +629,19 @@ export default () => [bridge.extension(), defineExtension({
     t.after(() => app.close());
     assert.equal(app.models.getRegisteredProviderConfig("gemini-bridge"), undefined);
     await app.setExtensionEnabled(owner(app), "offline-gemini.ts", true);
+    const provider = app.models.getRegisteredProviderConfig("gemini-bridge");
+
+    assert.equal(provider?.api, "openai-completions");
+    assert.equal(provider?.baseUrl, f.baseUrl);
+    assert.ok(provider?.models?.some((model) => model.id === MODEL));
     const id = await newSession(app, cwd);
 
     await app.commands.configure(id, owner(app), {
         model: { provider: "gemini-bridge", modelId: MODEL },
+    });
+    assert.deepEqual((await app.agentState(id))?.model, {
+        provider: "gemini-bridge",
+        modelId: MODEL,
     });
     await say(app, id, "offline tool roundtrip");
     assert.equal(await readFile(outputPath, "utf8"), "Durable owns this tool");

@@ -10,6 +10,7 @@ import { DonsetchError, runDonsetch } from "../web-search/donsetch.ts";
 import { WebAccessManager } from "../web-search/manager.ts";
 
 const root = mkdtempSync(join(tmpdir(), "web-search-donsetch-"));
+
 const cleanUp = () => {
     rmSync(root, { recursive: true, force: true });
     delete process.env.DONSETCH_BINARY;
@@ -21,6 +22,7 @@ after(cleanUp);
 function shim(name: string, script: string): string {
     const path = join(root, name);
     const body = `#!/usr/bin/env node\n${script}\n`;
+
     writeFileSync(path, body);
     chmodSync(path, 0o755);
 
@@ -115,6 +117,7 @@ test("search through the binary maps results and counts usage", async () => {
 test("fetchContent with the donsetch provider returns the binary's markdown", async () => {
     process.env.DONSETCH_BINARY = okShim;
     const directory = join(root, "extract");
+
     await mkdir(directory, { recursive: true });
     const manager = new WebAccessManager(directory, transport);
     const result = await manager.fetchContent("https://example.com/page", 5000, "donsetch");
@@ -126,6 +129,7 @@ test("fetchContent with the donsetch provider returns the binary's markdown", as
 test("crawl delegates to the binary in donsetch mode and refuses other providers", async () => {
     process.env.DONSETCH_BINARY = okShim;
     const directory = join(root, "crawl");
+
     await mkdir(directory, { recursive: true });
     const manager = new WebAccessManager(directory, transport);
     const data = (await manager.crawl("https://example.com", "async topic", "donsetch")) as any;

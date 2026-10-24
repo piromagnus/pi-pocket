@@ -1,5 +1,14 @@
 // Auto-resume's sheet in the app, in Chromium on a phone's screen: this chat's switch, the owner's default and delay.
-import { cleanUp, newSession, openApp, root, scriptedModel, until } from "./helpers.ts";
+import {
+    cleanUp,
+    installAutoResume,
+    newSession,
+    openApp,
+    owner,
+    root,
+    scriptedModel,
+    until,
+} from "./helpers.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { createServer } from "node:http";
@@ -16,7 +25,14 @@ test(
     "the menu opens auto-resume's sheet, whose choices last across a reload",
     { skip: findBrowser() ? false : "no Chromium-based browser" },
     async () => {
-        const app = await openApp(scriptedModel());
+        const dataDir = join(root, "auto-resume-ui-data");
+
+        installAutoResume(dataDir);
+
+        const app = await openApp(scriptedModel(), dataDir);
+
+        await app.setExtensionEnabled(owner(app), "auto-resume.ts", true);
+
         const id = await newSession(app);
         const server = createServer(
             createHandler({ app, listen: { host: "127.0.0.1", port: 0 }, restart: () => {} }),
@@ -51,7 +67,14 @@ test(
             );
 
         const openSheet = async () => {
-            await page.evaluate(`(await import('/store.js')).openSheet({type:'menu'})`);
+            await until(
+                async () =>
+                    evaluate<boolean>(
+                        `return JSON.stringify(location.pathname === ${JSON.stringify(`/s/${id}`)} && document.querySelector('.topbar .title-open:not([disabled])') !== null)`,
+                    ),
+                "the loaded session menu",
+            );
+            await click(".topbar .title-open:not([disabled])");
             await until(
                 async () =>
                     evaluate<boolean>(

@@ -9,13 +9,13 @@ import {
     type HookApi,
 } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord";
-import type { PocketHost } from "../host.ts";
+import type { Host, Web } from "../_pocket.d.ts";
 import { ClaudeBridgeProvider, type ClaudeBridgeOptions } from "./provider.ts";
 
 export function createClaudeBridgeModule(options: ClaudeBridgeOptions = {}) {
     let bridge: ClaudeBridgeProvider | undefined;
 
-    async function remember(host: PocketHost, api: HookApi, context: Context): Promise<void> {
+    async function remember(host: Host, api: HookApi, context: Context): Promise<void> {
         const agent = await api.snapshot(AgentDoc, api.conversationId, context);
 
         if (agent?.model?.provider !== "claude-bridge") {
@@ -29,8 +29,24 @@ export function createClaudeBridgeModule(options: ClaudeBridgeOptions = {}) {
         }
     }
 
-    return {
-        extension(host: PocketHost) {
+    return async function createClaudeBridge(host: Host, web: Web) {
+        bridge = new ClaudeBridgeProvider({
+            executable: process.env.PI_POCKET_CLAUDE_EXECUTABLE,
+            ...options,
+        });
+
+        try {
+            await bridge.initialize();
+            const unregister = host.registerModelProvider("claude-bridge", bridge.config());
+
+            web.onDispose(async () => {
+                try {
+                    unregister();
+                } finally {
+                    await bridge?.close();
+                }
+            });
+
             return defineExtension({
                 name: "claude-code-bridge",
                 hooks: [
@@ -50,25 +66,10 @@ export function createClaudeBridgeModule(options: ClaudeBridgeOptions = {}) {
                     }),
                 ],
             });
-        },
-        async providers() {
-            bridge = new ClaudeBridgeProvider({
-                executable: process.env.PI_POCKET_CLAUDE_EXECUTABLE,
-                ...options,
-            });
+        } catch (error) {
+            await bridge.close();
 
-            try {
-                await bridge.initialize();
-
-                return [{ id: "claude-bridge", config: bridge.config() }];
-            } catch (error) {
-                await bridge.close();
-
-                throw error;
-            }
-        },
-        async dispose() {
-            await bridge?.close();
-        },
+            throw error;
+        }
     };
 }

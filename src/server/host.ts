@@ -11,7 +11,6 @@ import type {
     Tx,
 } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
-import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Browsers } from "./browser.ts";
 import type { Gallery } from "./gallery.ts";
 import type { Role, User } from "./config.ts";
@@ -491,15 +490,7 @@ export interface ExtensionWeb {
     command(name: string, command: ExtensionCommand): void;
 }
 
-/** Coding-agent's provider input type is not exported from its package root. */
-export type ProviderConfigInput = Parameters<ModelRuntime["registerProvider"]>[1];
-
-export interface ProviderRegistration {
-    id: string;
-    config: ProviderConfigInput;
-}
-
-/** A Durable factory, optionally contributing providers and owning module-local worker cleanup. */
+/** The shape of every module in `src/server/extensions/`: a default export building one or more extensions. */
 export type ExtensionModule = {
     /** Builds the module's extensions; a module that only adds to the app returns nothing. It may be async. */
     default: (
@@ -508,6 +499,4 @@ export type ExtensionModule = {
     ) => Extension | readonly Extension[] | void | Promise<Extension | readonly Extension[] | void>;
     /** The version of the extension API the module needs, when it says: a newer one than the app's is not loaded. */
     pocketApi?: unknown;
-    providers?: (host: PocketHost) => ProviderRegistration[] | Promise<ProviderRegistration[]>;
-    dispose?: () => void | Promise<void>;
 };

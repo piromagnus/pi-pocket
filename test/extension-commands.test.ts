@@ -23,6 +23,7 @@ const Runs = defineDoc<{ count: number }>({
     scope: "conversation",
     history: "latest",
     fork: "current",
+    checkpointWhen: () => false,
     initial: () => ({ count: 0 }),
 });
 
@@ -31,6 +32,7 @@ const MODULE = `/** Counts. */
 import { defineDoc } from "@earendil-works/pi-durable";
 const Runs = defineDoc({
     kind: "x.counter.runs", version: 1, scope: "conversation", history: "latest", fork: "current",
+    checkpointWhen: () => false,
     initial: () => ({ count: 0 }),
 });
 const count = (ctx) => ctx.commit(async (tx) => { (await tx.doc(Runs, ctx.conversationId)).count++; });
@@ -176,11 +178,7 @@ test("a failed reload keeps the commands, and turning the module off takes them 
 
     writeFileSync(join(app.dataDir, "extensions", FILE), MODULE);
     await app.setExtensionEnabled(owner(app), FILE, false);
-    // Only the built-in auto-resume's command stays.
-    assert.deepEqual(
-        app.webs.commands().map((each) => each.name),
-        ["auto-resume"],
-    );
+    assert.deepEqual(app.webs.commands(), []);
 
     const id = await newSession(app);
 

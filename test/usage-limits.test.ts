@@ -8,8 +8,8 @@ import {
     MAX_WAIT_MS,
     RESET_GRACE_MS,
     type Verdict,
-} from "../src/server/extensions/_usage-limits.ts";
-import { parseDelay } from "../src/server/extensions/auto-resume.ts";
+} from "../extensions/auto-resume/_usage-limits.ts";
+import { parseDelay } from "../extensions/auto-resume/auto-resume.ts";
 
 const now = 1_800_000_000_000;
 const minute = 60_000;

@@ -12,9 +12,28 @@ import {
     type ConversationId,
     type DocumentReader,
 } from "@earendil-works/pi-durable";
-import type { Schedule } from "../docs.ts";
-import type { ConversationWebRequest, ExtensionWeb, PocketHost, WebRequest } from "../host.ts";
+import type { ConversationWebRequest, Host, Web, WebRequest } from "./_pocket.d.ts";
 import { classify, durationMs } from "./_usage-limits.ts";
+
+type Schedule = {
+    id: string;
+    key?: string;
+    next: number;
+    runs: number;
+    every?: { minutes?: number };
+};
+
+type AutoResumeHost = Host & {
+    schedules: {
+        add(
+            id: ConversationId,
+            request: { when: string; text: string; key: string; requestedBy?: string },
+        ): Promise<Schedule>;
+        cancel(id: ConversationId, scheduleId: string): Promise<boolean>;
+        list(id: ConversationId): Promise<Schedule[]>;
+    };
+    pip: { ownerOf(id: ConversationId): string | undefined };
+};
 
 /** Its schedules' keys start with this, then the tries before it and the failed generation: `x.auto-resume:2:41`. */
 const KEY = "x.auto-resume:";
@@ -38,6 +57,7 @@ const ChoiceDoc = defineDoc<{ on?: boolean }>({
     history: "latest",
     fork: "initial",
     initial: () => ({}),
+    checkpointWhen: () => false,
 });
 
 /** The owner's default for every chat, and the delay when a provider gives no reset time. */
@@ -46,6 +66,7 @@ const SettingsDoc = defineDoc<Partial<Settings>>({
     version: 1,
     scope: "session",
     initial: () => ({}),
+    checkpointWhen: () => false,
 });
 
 /** Tries before giving up: as many fixed delays as fit in a five-hour window. */
@@ -73,7 +94,7 @@ export function parseDelay(text: string): number | undefined {
     return count >= MIN_DELAY && count <= MAX_DELAY ? count : undefined;
 }
 
-export default function createAutoResume(host: PocketHost, web: ExtensionWeb) {
+export default function createAutoResume(host: AutoResumeHost, web: Web) {
     const settingsOf = async (snapshot: DocumentReader["snapshot"], context: Context) => ({
         ...DEFAULTS,
         ...(await snapshot(SettingsDoc, context)),
@@ -374,5 +395,5 @@ export default function createAutoResume(host: PocketHost, web: ExtensionWeb) {
         },
     });
 
-    return defineExtension({ name: "pocket-auto-resume", hooks: [afterResponse] });
+    return defineExtension({ name: "local-auto-resume", hooks: [afterResponse] });
 }

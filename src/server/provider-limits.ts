@@ -8,7 +8,7 @@
 import { readFileSync } from "node:fs";
 import { rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 export type ProviderLimit = {
@@ -147,12 +147,17 @@ const REPORTING_APIS = new Set([
     "pi-messages",
 ]);
 
+/** Whether pi-ai's adapter invokes the public response callback. */
+export function apiSupportsOnResponse(api: Api): boolean {
+    return REPORTING_APIS.has(api);
+}
+
 /** Record the limits of every response Pi's model runtime gets: runs, compactions, and titles all stream through it. */
 export function recordResponses(models: ModelRuntime, limits: ProviderLimits): void {
     const stream = models.streamSimple.bind(models);
 
     models.streamSimple = (model, context, options) => {
-        if (!REPORTING_APIS.has(model.api)) {
+        if (!apiSupportsOnResponse(model.api)) {
             return stream(model, context, options);
         }
 

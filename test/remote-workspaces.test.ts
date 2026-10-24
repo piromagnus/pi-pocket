@@ -123,6 +123,80 @@ test("workspace provider replacement preserves the current provider and rejects 
     }
 });
 
+test("an extension route cannot create a remote session after its client disconnects", async () => {
+    const app = await openApp(scriptedModel());
+    const marker = join(root, `remote-route-resolving-${crypto.randomUUID()}`);
+    const uri = "routecancel://host/work";
+    const source = `/** Tests canceled remote session admission. */
+import { writeFileSync } from "node:fs";
+import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+export default (host, web) => {
+    host.registerWorkspaceProvider("routecancel", {
+        env: () => new NodeExecutionEnv({ cwd: ${JSON.stringify(work)} }),
+        resolveCwd: async (cwd) => {
+            writeFileSync(${JSON.stringify(marker)}, "entered");
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            return cwd;
+        },
+    });
+    web.route("POST", "session", async (request) =>
+        request.createSession({ cwd: request.body.cwd }),
+    );
+};`;
+    const extension = join(app.dataDir, "extensions", "remote-route-cancel.ts");
+
+    writeFileSync(extension, source);
+    await app.setExtensionEnabled(owner(app), "remote-route-cancel.ts", true);
+
+    const socket = new Duplex({
+        read() {},
+        write(_chunk, _encoding, done) {
+            done();
+        },
+    });
+    const request = new IncomingMessage(socket as never);
+
+    request.url = "/api/x/remote-route-cancel/session";
+    request.method = "POST";
+    request.headers = {
+        authorization: `Bearer ${app.config.ownerToken}`,
+        "x-pocket": "1",
+        "content-type": "application/json",
+    };
+    request.push(Buffer.from(JSON.stringify({ cwd: uri })));
+    request.push(null);
+    request.complete = true;
+    const response = new ServerResponse(request);
+
+    response.assignSocket(socket as never);
+    const handle = await import("../src/server/http.ts");
+    const serve = handle.createHandler({
+        app,
+        listen: { host: "127.0.0.1", port: 0 },
+        restart: () => {},
+    });
+    const count = app.sessions().length;
+    const handling = serve(request, response);
+
+    try {
+        await until(() => {
+            try {
+                return readFileSync(marker, "utf8") === "entered";
+            } catch {
+                return false;
+            }
+        }, "the delayed workspace resolution");
+        socket.destroy();
+        await handling;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        assert.equal(app.sessions().length, count);
+    } finally {
+        socket.destroy();
+        await app.close();
+    }
+});
+
 test("remote resolution cannot create after cancellation or configure after access revocation", async () => {
     const app = await openApp(scriptedModel());
     const uri = "cancelremote://host/work";

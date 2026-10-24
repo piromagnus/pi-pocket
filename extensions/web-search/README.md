@@ -71,13 +71,16 @@ may change it — rerun the tests and one live call after a major DonSeTch relea
 
 ## Data, keys and network access
 
-Settings and extension-only keys are stored in
-`<host.dataDir>/web-search/web-search.json`; the request ledger and research jobs
-are in `web-usage.json` alongside it. The directory is created with mode `0700`
-and files with `0600`. Keys are masked in settings responses. This extension
-**does not read** `~/.pi`, `auth.json`, Pi Pocket provider credentials or environment
-variables. Enter a separate key in the extension's settings. Connection tests may
-send a key entered in the form without saving it.
+Settings and keys are stored in `<host.dataDir>/web-search/web-search.json`;
+the request ledger and research jobs are in `web-usage.json` alongside it. The
+directory is created with mode `0700` and files with `0600`. The extension reads
+provider keys from the matching `*_API_KEY` environment variable, its own
+settings, then API-key entries in `<host.agentDir>/auth.json` (including
+`openai-codex` for OpenAI), to preserve the existing core key sources. OAuth
+access tokens are not used. The owner-only settings response
+masks every key. The module runs with the server's rights, so review this code
+before enabling it. Connection tests may send a key entered in the form without
+saving it.
 
 The following services can be contacted when selected or tested:
 
@@ -118,12 +121,14 @@ redirect hops are not separate ledger calls. Provider-reported credits are kept
 separate from request counts; network failures can leave billing unknown. Other
 applications' usage and provider-side work are not visible here.
 
-For an existing core web-access setup, migration is deliberately manual: stop
-using the old integration, back up its settings and ledger, then optionally copy
-its `~/.pi/web-search.json` and `~/.pi/web-usage.json` into the new extension data
-directory with file mode `0600`. Do not overwrite an existing extension ledger.
-Keys formerly supplied by `auth.json` or environment variables must be entered
-again. Keep the source files until you have verified the migrated settings.
+For an existing core web-access setup, first back up its settings and ledger.
+The source directory is the parent of `PI_CODING_AGENT_DIR`, or `~/.pi` when
+that variable is not set. Copy `web-search.json` and `web-usage.json` to
+`<PI_POCKET_DIR>/web-search/` (normally `~/.pi-pocket/web-search/`). Keep the
+source files. Do not overwrite either destination file. The extension keeps the
+old settings fields, including flat and nested provider keys, and it reads the
+same environment and `auth.json` key sources. Verify the settings sheet before
+disabling the core module.
 
 ## Development and validation
 

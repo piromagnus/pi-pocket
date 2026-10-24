@@ -4,6 +4,7 @@
  * keeps its own API keys, settings, and request ledger below host.dataDir,
  * tests connectivity, and executes live searches and web fetches.
  */
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Host, PublicFetchInit } from "../_pocket.d.ts";
 import {
@@ -56,7 +57,7 @@ export interface WebProviderDescriptor {
     website: string;
     apiKeyRequired: boolean;
     keyConfigured: boolean;
-    keySource?: "extension" | "none";
+    keySource?: "env" | "extension" | "auth.json" | "none";
     maskedKey?: string;
     connected?: boolean;
     latencyMs?: number;
@@ -187,12 +188,15 @@ function cleanHtml(html: string): string {
 
 export class WebAccessManager {
     readonly #configPath: string;
-    readonly #host: Pick<Host, "fetchPublic">;
+    readonly #host: Pick<Host, "fetchPublic"> & Partial<Pick<Host, "agentDir">>;
     readonly #alive = new AbortController();
     readonly #usagePath: string;
     #testCache = new Map<string, { ok: boolean; latencyMs?: number; error?: string; at: number }>();
 
-    constructor(directory: string, host: Pick<Host, "fetchPublic">) {
+    constructor(
+        directory: string,
+        host: Pick<Host, "fetchPublic"> & Partial<Pick<Host, "agentDir">>,
+    ) {
         this.#configPath = join(directory, "web-search.json");
         this.#usagePath = join(directory, "web-usage.json");
         this.#host = host;
@@ -230,13 +234,51 @@ export class WebAccessManager {
         });
     }
 
-    async resolveKey(providerId: string): Promise<{ key?: string; source: "extension" | "none" }> {
-        const config = await this.loadConfig();
-        const value = (config as Record<string, unknown>)[`${providerId}ApiKey`];
+    async resolveKey(
+        providerId: string,
+    ): Promise<{ key?: string; source: "env" | "extension" | "auth.json" | "none" }> {
+        const envKey = process.env[`${providerId.toUpperCase()}_API_KEY`];
 
-        return typeof value === "string" && value.trim()
-            ? { key: value.trim(), source: "extension" }
-            : { source: "none" };
+        if (envKey) {
+            return { key: envKey, source: "env" };
+        }
+
+        const config = await this.loadConfig();
+        const entry = (config as Record<string, unknown>)[providerId];
+        const value =
+            (config as Record<string, unknown>)[`${providerId}ApiKey`] ??
+            (typeof entry === "object" && entry !== null
+                ? ((entry as Record<string, unknown>).apiKey ??
+                  (entry as Record<string, unknown>).key)
+                : undefined);
+
+        if (typeof value === "string" && value.trim()) {
+            return { key: value.trim(), source: "extension" };
+        }
+
+        try {
+            if (!this.#host.agentDir) {
+                return { source: "none" };
+            }
+
+            const auth = JSON.parse(await readFile(join(this.#host.agentDir, "auth.json"), "utf8"));
+            const credential =
+                auth[providerId] ?? (providerId === "openai" ? auth["openai-codex"] : undefined);
+            const key =
+                typeof credential === "string"
+                    ? credential
+                    : credential?.type === "api_key"
+                      ? (credential.apiKey ?? credential.key)
+                      : undefined;
+
+            if (typeof key === "string" && key.trim()) {
+                return { key: key.trim(), source: "auth.json" };
+            }
+        } catch {
+            // Missing or invalid auth files do not block other key sources.
+        }
+
+        return { source: "none" };
     }
 
     async getState(): Promise<WebAccessState> {
@@ -1216,6 +1258,7 @@ export class WebAccessManager {
                     topic: instructions,
                     signal: this.#alive.signal,
                 });
+
                 await this.#countLocal(
                     { provider, operation: "crawl", mode: "keyless", purpose: "tool" },
                     "success",

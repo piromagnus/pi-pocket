@@ -130,6 +130,7 @@ export async function runDonsetch(
             try {
                 child.kill("SIGKILL");
             } catch {}
+
             reject(error);
         };
 
@@ -137,6 +138,7 @@ export async function runDonsetch(
             try {
                 child.kill("SIGTERM");
             } catch {}
+
             setTimeout(() => {
                 try {
                     child.kill("SIGKILL");

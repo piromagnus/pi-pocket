@@ -36,29 +36,18 @@ The bridge also rejects configured API-key upstream groups, payload transformati
 
 ## Install and enable
 
-1. Install the checkout's dependencies (`npm install`). Provider-module support must already be loaded by Pocket; if it was just added to this server, finish checks and use **Menu → Restart server** once.
-2. Save the complete drop-in below as `~/.pi-pocket/extensions/gemini-bridge.ts`, adjusting the absolute checkout path if needed:
+1. Install the checkout's dependencies (`npm install`). This standalone extension uses the public `host.registerModelProvider` and `web.onDispose` APIs, available in Pi Pocket 0.20.0 or later.
+2. Copy `extensions/provider-bridges/gemini-bridge.ts` to `~/.pi-pocket/extensions/gemini-bridge.ts`.
 
-```typescript
-/** Gemini subscription models via local CLIProxyAPI, with every tool executed by Pi Pocket. */
-import { createGeminiBridgeModule } from "/home/pmarrec/pi-pocket/src/server/gemini-bridge.ts";
-
-const bridge = createGeminiBridgeModule();
-
-export const providers = bridge.providers;
-export const dispose = bridge.dispose;
-export default bridge.extension;
-```
-
-The file loads `src/server/gemini-bridge.ts` with the owner's rights. It reads the proxy config, makes authenticated model-list and generation requests to a fixed loopback API, and forwards Pocket's effective instructions, transcript, tool schemas, and results through that proxy to Google. It does not execute `agy`, shell commands, native Google tools, MCP servers, or hooks; Google function calls return to Pocket. Google credentials remain managed by the proxy. Only the local client key is used here, never printed or persisted into Pocket's session data.
+The file runs with the owner's rights. It reads the proxy config, makes authenticated model-list and generation requests to a fixed loopback API, and forwards Pocket's effective instructions, transcript, tool schemas, and results through that proxy to Google. It does not execute `agy`, shell commands, native Google tools, MCP servers, or hooks; Google function calls return to Pocket. Google credentials remain managed by the proxy. Only the local client key is used here, never printed or persisted into Pocket's session data.
 
 3. The owner enables **gemini-bridge.ts** in **Menu → Extensions**. It starts off. Enabling checks config and reads `/v1/models`, but does not make a generation request or query account usage. Unsafe config, unreachable proxy, invalid local key, or an empty Gemini catalog fails activation.
 4. Select a `gemini-bridge/…` model in a conversation's model picker. This changes only that conversation. Reload the extension after changing the proxy's account/catalog if a new model has not appeared.
 
-A different local config or endpoint can be supplied explicitly in the drop-in:
+A different local config or endpoint can be supplied by importing `createGeminiBridgeModule` from the copied file and passing these options to it:
 
 ```typescript
-const bridge = createGeminiBridgeModule({
+createGeminiBridgeModule({
     configPath: "/absolute/path/to/subscription-proxy.yaml",
     baseUrl: "http://127.0.0.1:8318/v1",
 });
@@ -78,10 +67,10 @@ Known Gemini models reuse Pi's input/context/output metadata with subscription c
 
 Every generation, title, and compaction rechecks the proxy configuration and exact advertised model. Calls use Pi's existing OpenAI Chat Completions conversion and streaming implementation, including Unicode, tool results, cancellation, and usage accounting. No native agent session needs reconstruction: after restart or fork, Pocket sends the committed transcript. The bridge performs no automatic request retries or fallback.
 
-Disabling/reloading/removing the module unregisters its provider, aborts its pending work, and destroys its HTTP dispatcher. A failed replacement preserves the previous module. Sessions keep their selected provider/model reference but cannot use a disabled provider. Editing the imported helper needs a server restart; reload of the drop-in alone does not invalidate helper-module caches.
+Disabling, reloading, or removing the module unregisters its provider, aborts its pending work, and destroys its HTTP dispatcher. Failed initialization destroys staged resources. Sessions keep their selected provider/model reference but cannot use a disabled provider.
 
 ```sh
-node --test test/gemini-bridge.test.ts test/provider-modules.test.ts test/docs-examples.test.ts
+node --test test/gemini-bridge.test.ts test/model-providers.test.ts test/docs-examples.test.ts
 npm run check
 npm run lint
 npm test

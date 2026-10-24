@@ -6,34 +6,23 @@ This is **not a billing guarantee**. Anthropic decides eligibility and quota. Be
 
 ## Install and activate
 
-This integration requires the provider-module loader changes in Pi Pocket and the dependencies pinned in `package.json`. Core loader changes need a server restart.
+This standalone extension uses Pi Pocket's public `host.registerModelProvider` and `web.onDispose` APIs. The APIs require Pi Pocket 0.20.0 or later. Install the pinned dependencies in the Pi Pocket checkout.
 
 1. Install dependencies with `npm install` in the Pi Pocket checkout.
 2. Check Claude Code is available and subscription-authenticated: `claude auth status`. If needed, run `claude auth login` yourself. An API-key or gateway login is rejected.
-3. Copy `src/server/claude-bridge/` into the data folder as `extensions/_claude-bridge/`. Helpers in this directory are not extension modules. They remain there across Pocket updates and restarts; they still need the pinned dependencies available through the extension folder's `node_modules` link.
-4. Save this complete drop-in as `extensions/claude-bridge.ts`:
-
-```typescript
-/** Claude Code as a subscription-login model provider, with all tools executed by Pi Pocket. */
-import { createClaudeBridgeModule } from "./_claude-bridge/module.ts";
-
-const bridge = createClaudeBridgeModule();
-
-export const providers = bridge.providers;
-export const dispose = bridge.dispose;
-export default bridge.extension;
-```
+3. Copy `extensions/provider-bridges/_claude-bridge-public/` into the data folder as `extensions/_claude-bridge-public/`. These helper files are not modules. They remain there across Pocket updates and need the pinned dependencies available through the extension folder's `node_modules` link. Leave any existing `extensions/_claude-bridge/` folder untouched as a legacy backup.
+4. Copy `extensions/provider-bridges/claude-bridge.ts` into the data folder as `extensions/claude-bridge.ts`.
 
 5. After checks pass, use **Menu → Restart server**. Then the owner enables **claude-bridge.ts** in **Menu → Extensions**. The drop-in starts off and does not sign in or make model requests by itself.
 6. Open the session's model picker and select a `claude-bridge/…` model. Every listed bridge model is configured to request 1M context, including `claude-bridge/claude-haiku-5-5` (128K output metadata). Model labels say **1M requested**, not verified support: older models or unentitled subscriptions may reject the request.
 
 `PI_POCKET_CLAUDE_EXECUTABLE` can name another Claude Code executable. Otherwise the adapter uses `claude` on the server's PATH. Changing server environment variables needs a restart.
 
-The [example module](examples/claude-bridge.ts) demonstrates the same exports in the checkout. Its import must be adjusted when copied elsewhere.
+The standalone entrypoint is [extensions/provider-bridges/claude-bridge.ts](../extensions/provider-bridges/claude-bridge.ts). It uses public provider registration and registers worker cleanup with `web.onDispose`.
 
 ## What runs with the owner's rights
 
-The drop-in loads the helpers in `src/server/claude-bridge/` (or the installed `_claude-bridge/` copy), compiles the pinned upstream TypeScript into a disposable temporary directory, and registers one provider. The original Pi CLI factory, TUI integration, and AskClaude tool are never activated.
+The drop-in loads its helpers from the installed `_claude-bridge-public/` folder, compiles the pinned upstream TypeScript into a disposable temporary directory, and registers one provider through the public host API. The original Pi CLI factory, TUI integration, and AskClaude tool are never activated.
 
 Each active conversation gets an isolated worker process with its own fixed working directory. Summaries and generated titles get separate, short-lived workers. Claude sees the conversation, all effective Pocket instructions, tool definitions, and tool results; these go to Anthropic. Login checks use `claude auth status` metadata without reading or logging token files. Workers use Claude Code's normal credential/session storage; they do not read or write Pocket's stored data directly.
 
@@ -55,14 +44,14 @@ The installed pi-ai/upstream catalogs predate Haiku 5.5, so its entry is supplie
 
 Pi Durable's transcript and provider session ID remain authoritative. SDK query handlers and worker processes are deliberately ephemeral: after a crash/restart, the next attempt reconstructs Claude's mirror from committed history, including already-completed tool results. Forks use independent provider identities and working directories. Switching a session's folder replaces its worker; process-wide `chdir()` is never used.
 
-Disabling, reloading, removing, or shutting down the module unregisters its provider and closes its workers. A failed reload keeps the previous provider. Sessions that selected a disabled provider keep their model selection but cannot call it until it is enabled again. An idle parked worker is reaped after 15 minutes and can rebuild later from the durable transcript. Rebuilds can lose prompt-cache hits and resend history.
+Disabling, reloading, removing, or shutting down the module unregisters its provider and closes its workers. Failed initialization closes staged workers before the loader reports failure. Sessions that selected a disabled provider keep their model selection but cannot call it until it is enabled again. An idle parked worker is reaped after 15 minutes and can rebuild later from the durable transcript. Rebuilds can lose prompt-cache hits and resend history.
 
 Dependencies are pinned and the adapter checks the exact upstream version and source boundaries. Upgrading the bridge requires reviewing the adapter and rerunning its offline tests. No real Claude calls are part of the automated test suite. Request-instrumentation callbacks cannot cross this worker boundary and are rejected rather than silently omitted.
 
 ## Verify without spending quota
 
 ```sh
-node --test test/claude-bridge.test.ts test/provider-modules.test.ts
+node --test test/claude-bridge.test.ts test/model-providers.test.ts
 npm run check
 npm run lint
 npm test

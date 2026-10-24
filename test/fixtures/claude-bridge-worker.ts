@@ -1,6 +1,9 @@
 /** Offline IPC script and deliberately unsafe upstream double for the real worker's guard. */
 import { type Api, type AssistantMessage, type Model, type ToolCall } from "@earendil-works/pi-ai";
-import type { WorkerInput, WorkerOutput } from "../../src/server/claude-bridge/protocol.ts";
+import type {
+    WorkerInput,
+    WorkerOutput,
+} from "../../extensions/provider-bridges/_claude-bridge-public/protocol.ts";
 
 export function response(model: Model<Api>, text: string): AssistantMessage {
     return {

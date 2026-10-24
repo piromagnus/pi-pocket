@@ -603,6 +603,7 @@ export function createApi(options: HttpOptions, auth: Auth) {
                 defaultModel?: unknown;
                 pipCompactAt?: unknown;
                 subagentModels?: unknown;
+                limitWaitHours?: unknown;
             }>(request);
 
             // One at a time: a second that fails must not leave the first changed.
@@ -612,6 +613,7 @@ export function createApi(options: HttpOptions, auth: Auth) {
                     body.defaultModel,
                     body.pipCompactAt,
                     body.subagentModels,
+                    body.limitWaitHours,
                 ].filter((value) => value !== undefined).length > 1
             ) {
                 throw new HttpError(400, "Change one setting at a time.");
@@ -624,6 +626,11 @@ export function createApi(options: HttpOptions, auth: Auth) {
 
             if (body.pipCompactAt !== undefined) {
                 await app.setPipCompactAt(user, body.pipCompactAt);
+            }
+
+            // How long a run waits for a provider's limit to clear: the owner's (checked in `app.ts`).
+            if (body.limitWaitHours !== undefined) {
+                await app.setLimitWaitHours(user, body.limitWaitHours);
             }
 
             if (body.approvalRule !== undefined) {
@@ -743,93 +750,6 @@ export function createApi(options: HttpOptions, auth: Auth) {
             await app.providers.logout(second);
 
             return json(response, 200, { ok: true });
-        }
-
-        if (first === "web-access" && second === undefined && method === "GET") {
-            return json(response, 200, await app.webAccess.getState());
-        }
-
-        if (first === "web-access" && second === undefined && method === "POST") {
-            requireOwner(user);
-            const body = await readJson<{
-                primaryProvider?: string;
-                providerOrder?: string[];
-                apiKey?: { provider: string; key: string };
-                enabled?: boolean;
-                maxResults?: number;
-                tierRouting?: import("../web-access-settings.ts").TierRouting;
-                providerSettings?: import("../web-access-settings.ts").ProviderSettings;
-                extractOrder?: string[];
-                operations?: Record<string, import("../web-access-settings.ts").WebOperation[]>;
-            }>(request);
-
-            if (body.apiKey) {
-                await app.webAccess.setApiKey(body.apiKey.provider, body.apiKey.key);
-            }
-
-            if (
-                body.primaryProvider ||
-                body.providerOrder ||
-                body.enabled !== undefined ||
-                body.maxResults !== undefined ||
-                body.tierRouting !== undefined ||
-                body.providerSettings !== undefined ||
-                body.extractOrder !== undefined ||
-                body.operations !== undefined
-            ) {
-                await app.webAccess.saveConfig({
-                    ...(body.primaryProvider ? { provider: body.primaryProvider } : {}),
-                    ...(body.providerOrder
-                        ? { searchRouting: { providers: body.providerOrder } }
-                        : {}),
-                    ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
-                    ...(body.maxResults !== undefined ? { maxResults: body.maxResults } : {}),
-                    ...(body.tierRouting !== undefined ? { tierRouting: body.tierRouting } : {}),
-                    ...(body.providerSettings !== undefined
-                        ? { providerSettings: body.providerSettings }
-                        : {}),
-                    ...(body.extractOrder !== undefined ? { extractOrder: body.extractOrder } : {}),
-                    ...(body.operations !== undefined ? { operations: body.operations } : {}),
-                });
-            }
-
-            return json(response, 200, await app.webAccess.getState());
-        }
-
-        if (first === "web-access" && second === "test" && method === "POST") {
-            requireOwner(user);
-            const body = await readJson<{ provider: string; apiKey?: string }>(request);
-
-            if (!body.provider) {
-                throw new HttpError(400, "Provider is required");
-            }
-
-            const result = await app.webAccess.testConnection(body.provider, body.apiKey);
-
-            return json(response, 200, result);
-        }
-
-        if (first === "web-access" && second === "search" && method === "POST") {
-            const body = await readJson<{
-                query: string;
-                provider?: string;
-                numResults?: number;
-                tier?: import("../web-access-settings.ts").SearchTier;
-                mode?: string;
-            }>(request);
-
-            if (typeof body.query !== "string" || !body.query.trim()) {
-                throw new HttpError(400, "Query is required");
-            }
-
-            const result = await app.webAccess.search(
-                body.query.trim(),
-                body.provider,
-                body.numResults,
-                { tier: body.tier, mode: body.mode, purpose: "tester" },
-            );
-
-            return json(response, 200, result);
         }
 
         if (first === "auth" && second !== undefined && third === "cancel" && method === "POST") {

@@ -208,8 +208,7 @@ export default function setup(pocket) {
             }
         };
 
-        return html`<>
-        <div class="web-access-sheet">
+        return html`<div class="web-access-sheet">
             <p class="muted small">
                 Configure live web access and search providers for Pi. When enabled, Pi can use
                 <span class="mono"> web_search</span> and
@@ -218,7 +217,6 @@ export default function setup(pocket) {
             </p>
 
             ${loading && !data && html`<${Loader} label="Loading web access configuration" />`}
-
             ${
                 data &&
                 html`
@@ -452,7 +450,7 @@ export default function setup(pocket) {
                                         </button>
                                         ${
                                             hasKey &&
-                                            p.keySource === "web-search.json" &&
+                                            p.keySource === "extension" &&
                                             html`<button
                                                 class="button small ghost"
                                                 disabled=${saving}
@@ -612,8 +610,7 @@ export default function setup(pocket) {
                     </div>
                 `
             }
-        </div>
-    </>`;
+        </div>`;
     }
 
     pocket.sheet({ id: "settings", title: "Web search", wide: true, component: WebAccessSheet });

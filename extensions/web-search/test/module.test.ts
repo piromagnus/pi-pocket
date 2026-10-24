@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import createWebSearch from "../web-search.ts";
@@ -16,6 +16,7 @@ function fixture(fetchPublic: Host["fetchPublic"]) {
     const disposed: (() => unknown)[] = [];
     const host = {
         dataDir: mkdtempSync(join(root, "data-")),
+        agentDir: mkdtempSync(join(root, "agent-")),
         fetchPublic,
         text: {
             defang: (text: string) => text.replaceAll("</", "‹/"),
@@ -57,6 +58,19 @@ test("the module stores its own settings under host.dataDir and retains tool rep
     } as unknown as WebRequest;
     const state = (await f.routes.get("POST state")!(request)) as any;
 
+    assert.deepEqual([...f.routes.keys()].sort(), [
+        "GET state",
+        "POST search",
+        "POST state",
+        "POST test",
+    ]);
+    assert.deepEqual(f.extension.tools?.map((tool) => tool.name).sort(), [
+        "fetch_content",
+        "web_crawl",
+        "web_research",
+        "web_research_status",
+        "web_search",
+    ]);
     assert.equal(state.providers.find((p: any) => p.id === "tavily").keySource, "extension");
     assert.equal(JSON.stringify(state).includes("private-extension-key"), false);
     assert.equal(
@@ -78,6 +92,89 @@ test("the module stores its own settings under host.dataDir and retains tool rep
     assert.equal(saved.unrelated, undefined);
     assert.notEqual(f.extension.tools?.find((t) => t.name === "web_research")?.replay, "safe");
     assert.equal(f.extension.tools?.find((t) => t.name === "web_research_status")?.replay, "safe");
+    f.dispose();
+});
+
+test("loads copied core settings, usage, nested keys, and auth fallbacks without exposing keys", async () => {
+    const f = fixture(async () => {
+        throw new Error("no network expected");
+    });
+    const legacyDir = mkdtempSync(join(root, "legacy-"));
+    const sourcePath = join(legacyDir, "web-search.json");
+    const legacy = {
+        enabled: true,
+        provider: "exa",
+        searchRouting: { providers: ["exa", "tavily"], fallbackOn: ["quota"] },
+        maxResults: 9,
+        tierRouting: {
+            quick: [{ provider: "exa", mode: "lite" }],
+            standard: [{ provider: "exa", mode: "auto" }],
+            deep: [{ provider: "exa", mode: "deep" }],
+        },
+        extractOrder: ["direct", "exa"],
+        providerSettings: { exa: { maxCharacters: 900 } },
+        operations: { exa: ["search", "extract"] },
+        exa: { key: "legacy-config-key" },
+    };
+    const legacyText = JSON.stringify(legacy);
+
+    writeFileSync(sourcePath, legacyText);
+    writeFileSync(
+        join(legacyDir, "web-usage.json"),
+        JSON.stringify({
+            since: "2026-01-01T00:00:00.000Z",
+            days: {
+                "2026-01-02": {
+                    "exa:search:auto:tool": {
+                        provider: "exa",
+                        operation: "search",
+                        mode: "auto",
+                        purpose: "tool",
+                        requests: 1,
+                        successes: 1,
+                        failures: 0,
+                        unknown: 0,
+                        fallback: 0,
+                        credits: 0,
+                        dollars: 0,
+                        creditReports: 0,
+                        dollarReports: 0,
+                    },
+                },
+            },
+            jobs: {},
+        }),
+    );
+    const targetDir = join(f.host.dataDir, "web-search");
+
+    mkdirSync(targetDir, { recursive: true });
+    writeFileSync(join(targetDir, "web-search.json"), readFileSync(sourcePath));
+    writeFileSync(
+        join(targetDir, "web-usage.json"),
+        readFileSync(join(legacyDir, "web-usage.json")),
+    );
+    writeFileSync(
+        join(f.host.agentDir, "auth.json"),
+        JSON.stringify({ serper: { type: "api_key", key: "legacy-auth-key" } }),
+    );
+
+    const state = (await f.routes.get("GET state")!({} as WebRequest)) as any;
+    const exa = state.providers.find((provider: any) => provider.id === "exa");
+    const serper = state.providers.find((provider: any) => provider.id === "serper");
+
+    assert.equal(state.primaryProvider, "exa");
+    assert.deepEqual(state.providerOrder, ["exa", "tavily"]);
+    assert.equal(state.maxResults, 9);
+    assert.deepEqual(state.tierRouting.quick, [{ provider: "exa", mode: "lite" }]);
+    assert.deepEqual(state.extractOrder, ["direct", "exa"]);
+    assert.equal(state.providerSettings.exa.maxCharacters, 900);
+    assert.equal(state.operations.exa.includes("extract"), true);
+    assert.equal(exa.keySource, "extension");
+    assert.equal(serper.keySource, "auth.json");
+    assert.equal(state.usage.days["2026-01-02"]["exa:search:auto:tool"].requests, 1);
+    assert.equal(JSON.stringify(state).includes("legacy-config-key"), false);
+    assert.equal(JSON.stringify(state).includes("legacy-auth-key"), false);
+    assert.equal(readFileSync(sourcePath, "utf8"), legacyText);
     f.dispose();
 });
 

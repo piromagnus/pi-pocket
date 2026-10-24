@@ -25,7 +25,7 @@ if (!source) {
     );
 
     test(
-        "public browser module saves tier edits and renders options without phone overflow",
+        "public browser module renders Preact output, saves tier edits, and fits phones",
         { skip: findBrowser() ? false : "Chromium unavailable" },
         async () => {
             const root = mkdtempSync(join(tmpdir(), "web-search-browser-"));
@@ -99,6 +99,14 @@ if (!source) {
                 };
 
                 await until("!!document.querySelector('[aria-label=\"quick provider 1\"]')");
+                assert.equal(
+                    await value("document.querySelector('#app > .web-access-sheet') !== null"),
+                    true,
+                );
+                assert.equal(
+                    await value("document.body.textContent.includes('[object Object]')"),
+                    false,
+                );
                 await page.evaluate(
                     `document.querySelector('[aria-label="Move quick route 2 up"]').click()`,
                 );

@@ -25,7 +25,6 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Type } from "@earendil-works/pi-ai";
 import { AgentDoc, ProviderDoc, type HookApi } from "@earendil-works/pi-durable";
 import type { Context as TaskContext } from "@earendil-works/chord";
-import type { PocketHost } from "../src/server/host.ts";
 import {
     normalizeContext,
     type Api,
@@ -35,14 +34,17 @@ import {
     type Model,
     type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
-import { assertClaudeLogin } from "../src/server/claude-bridge/authentication.ts";
-import { createClaudeBridgeModule } from "../src/server/claude-bridge/module.ts";
+import { assertClaudeLogin } from "../extensions/provider-bridges/_claude-bridge-public/authentication.ts";
+import { createClaudeBridgeModule } from "../extensions/provider-bridges/_claude-bridge-public/module.ts";
 import {
     assertSubscriptionEnvironment,
     type WorkerInput,
-} from "../src/server/claude-bridge/protocol.ts";
-import { bridgeModels, ClaudeBridgeProvider } from "../src/server/claude-bridge/provider.ts";
-import { compileBridge } from "../src/server/claude-bridge/upstream.ts";
+} from "../extensions/provider-bridges/_claude-bridge-public/protocol.ts";
+import {
+    bridgeModels,
+    ClaudeBridgeProvider,
+} from "../extensions/provider-bridges/_claude-bridge-public/provider.ts";
+import { compileBridge } from "../extensions/provider-bridges/_claude-bridge-public/upstream.ts";
 import { response } from "./fixtures/claude-bridge-worker.ts";
 
 after(cleanUp);
@@ -515,10 +517,12 @@ test("child error and IPC send failure produce terminal errors", async (t) => {
     }
 });
 
-test("module initialization exposes metadata only and disposal invalidates its stream closure", async (t) => {
+test("public provider registration exposes models and web cleanup closes its worker", async (t) => {
     await sandbox(t);
     let cleaned = 0;
-    const module = createClaudeBridgeModule({
+    let config: ReturnType<ClaudeBridgeProvider["config"]> | undefined;
+    let cleanup: (() => unknown) | undefined;
+    const create = createClaudeBridgeModule({
         checkLogin: async () => {},
         compile: async () => ({
             path: "offline",
@@ -530,17 +534,23 @@ test("module initialization exposes metadata only and disposal invalidates its s
             throw new Error("no worker expected");
         },
     });
-    const providers = await module.providers();
 
-    assert.deepEqual(
-        providers.map((entry) => entry.id),
-        ["claude-bridge"],
+    await create(
+        {
+            registerModelProvider: (_id: string, value: typeof config) => (
+                (config = value),
+                () => {
+                    throw new Error("unregister failed");
+                }
+            ),
+        } as never,
+        { onDispose: (run: () => unknown) => (cleanup = run) } as never,
     );
-    assert.ok(providers[0]);
-    assert.ok(providers[0].config.models!.length > 0);
-    await module.dispose();
+
+    assert.ok(config?.models?.length);
+    await assert.rejects(async () => cleanup?.(), /unregister failed/);
     assert.equal(cleaned, 1);
-    const stream = providers[0].config.streamSimple!(model, normalizeContext(context()), {});
+    const stream = config!.streamSimple!(model, normalizeContext(context()), {});
 
     assert.equal((await collect(stream)).message.stopReason, "error");
     const rejected = createClaudeBridgeModule({
@@ -552,8 +562,7 @@ test("module initialization exposes metadata only and disposal invalidates its s
         },
     });
 
-    await assert.rejects(rejected.providers(), /offline login refused/);
-    await rejected.dispose();
+    await assert.rejects(rejected({} as never, {} as never), /offline login refused/);
 });
 
 test("generation and compaction hooks map the Durable session to its current cwd", async (t) => {
@@ -578,7 +587,7 @@ test("generation and compaction hooks map the Durable session to its current cwd
     });
 
     t.after(async () => {
-        await module.dispose();
+        await dispose?.();
 
         for (const child of children) {
             child.kill("SIGTERM");
@@ -586,14 +595,18 @@ test("generation and compaction hooks map the Durable session to its current cwd
     });
     let cwd = join(directory, "work-a");
     let selectedProvider = "other-provider";
+    let config: ReturnType<ClaudeBridgeProvider["config"]> | undefined;
+    let dispose: (() => unknown) | undefined;
     const host = {
         cwdOf: (id: string) => {
             assert.equal(id, "durable-conversation");
 
             return cwd;
         },
-    } as unknown as PocketHost;
-    const extension = module.extension(host);
+        registerModelProvider: (_id: string, value: typeof config) => ((config = value), () => {}),
+    };
+    const web = { onDispose: (run: () => unknown) => (dispose = run) };
+    const extension = await module(host as never, web as never);
     const hooks = extension.hooks as unknown as {
         task: string;
         handlers: Record<
@@ -615,8 +628,8 @@ test("generation and compaction hooks map the Durable session to its current cwd
             return { sessionId: "durable-provider-session" };
         },
     } as unknown as HookApi;
-    const registrations = await module.providers();
-    const config = registrations[0]!.config;
+
+    assert.ok(config);
     const generation = hooks.find((entry) => entry.task === "pi.generation")!.handlers
         .beforeRequest!;
     const compaction = hooks.find((entry) => entry.task === "pi.compaction")!.handlers
@@ -704,7 +717,10 @@ test("real worker rejects native SDK tools before it can call a real model", asy
         compile: async () => ({ path: fixturePath, cleanup: async () => {} }),
         spawn: (compiled, cwd) =>
             fork(
-                new URL("../src/server/claude-bridge/worker.ts", import.meta.url),
+                new URL(
+                    "../extensions/provider-bridges/_claude-bridge-public/worker.ts",
+                    import.meta.url,
+                ),
                 [compiled, executable],
                 {
                     cwd,
@@ -732,13 +748,16 @@ test("owner-enabled PocketApp bridge runs Durable tools and preserves model choi
     const dropIns = join(dataDir, "extensions");
     const cwd = join(directory, "work-a");
     const observations = join(directory, "worker-observations.jsonl");
-    const modulePath = new URL("../src/server/claude-bridge/module.ts", import.meta.url).pathname;
+    const modulePath = new URL(
+        "../extensions/provider-bridges/_claude-bridge-public/module.ts",
+        import.meta.url,
+    ).pathname;
     const dropIn = `/** Offline Claude Bridge integration fixture. */
 import { fork } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { defineExtension, hook, ToolTask } from "@earendil-works/pi-durable";
 import { createClaudeBridgeModule } from ${JSON.stringify(modulePath)};
-const bridge = createClaudeBridgeModule({
+const createBridge = createClaudeBridgeModule({
     checkLogin: async () => {},
     compile: async () => ({ path: "offline", cleanup: async () => {} }),
     spawn: (_compiled, cwd) => {
@@ -757,12 +776,10 @@ const bridge = createClaudeBridgeModule({
         return child;
     },
 });
-export default host => [bridge.extension(host), defineExtension({
+export default async (host, web) => [await createBridge(host, web), defineExtension({
     name: "offline-bridge-guard",
     hooks: [hook(ToolTask, { beforeTool: call => call.name === "bash" ? { block: "Offline guard blocked shell" } : undefined })],
 })];
-export const providers = () => bridge.providers();
-export const dispose = () => bridge.dispose();
 `;
 
     await mkdir(dropIns, { recursive: true });

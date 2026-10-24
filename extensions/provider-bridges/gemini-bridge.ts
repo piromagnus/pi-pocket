@@ -15,12 +15,11 @@ import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { defineExtension } from "@earendil-works/pi-durable";
 import { Agent, fetch as proxyFetch } from "undici";
 import { parse } from "yaml";
-import type { ProviderConfigInput, ProviderRegistration } from "./host.ts";
+import type { Host, Web } from "./_pocket.d.ts";
 
-type BridgeModel = Extract<
-    NonNullable<ProviderConfigInput["models"]>[number],
-    { reasoning: boolean }
->;
+type ProviderConfig = Parameters<Host["registerModelProvider"]>[1];
+type ProviderRegistration = { id: string; config: ProviderConfig };
+type BridgeModel = Extract<NonNullable<ProviderConfig["models"]>[number], { reasoning: boolean }>;
 type RecordValue = Record<string, unknown>;
 
 export interface GeminiBridgeOptions {
@@ -416,11 +415,28 @@ export class GeminiBridge {
 }
 
 export function createGeminiBridgeModule(options: GeminiBridgeOptions = {}) {
-    const bridge = new GeminiBridge(options);
+    return async function createGeminiBridge(host: Host, web: Web) {
+        const bridge = new GeminiBridge(options);
 
-    return {
-        extension: () => defineExtension({ name: "gemini-subscription-bridge" }),
-        providers: async () => [await bridge.registration()],
-        dispose: () => bridge.close(),
+        try {
+            const { id, config } = await bridge.registration();
+            const unregister = host.registerModelProvider(id, config);
+
+            web.onDispose(async () => {
+                try {
+                    unregister();
+                } finally {
+                    await bridge.close();
+                }
+            });
+
+            return defineExtension({ name: "gemini-subscription-bridge" });
+        } catch (error) {
+            await bridge.close();
+
+            throw error;
+        }
     };
 }
+
+export default createGeminiBridgeModule();

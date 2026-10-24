@@ -1,12 +1,18 @@
 # Auto-resume
 
-Auto-resume continues a chat that a provider's usage or rate limit stopped. It waits until the reset time the provider gives, or a fixed delay when the provider gives none, and then sends Pi a message to go on from where it stopped. It does not change the model or its sign-in, buy credits, or turn on paid overflow.
+## Current behavior in v0.21.0
 
-It is the built-in module `auto-resume` (Menu → Extensions → **Auto-resume**). The owner can turn the whole module off there.
+The built-in `LimitGate` waits and retries eligible provider requests that fail before content starts. It waits for a known reset, or uses 15-second, 30-second, 1-, 2-, 5-, then 10-minute backoff, capped at 30 minutes and 40 tries. A failure after content starts is not replayed. The gate does not schedule a new message to continue a failed chat. The old chat-continuation module is archived at [`extensions/auto-resume/`](../extensions/auto-resume/README.md) as a disabled legacy drop-in. It is not part of standard v0.21.0 behavior.
 
-## Turn it on
+The archive preserves the stored document kinds `x.auto-resume.chat` and `x.auto-resume.settings`, their original scopes and conversation history/fork settings, and schedule key prefix `x.auto-resume:`. Keep the definitions and Scheduled messages task intact. The module uses internal host capabilities; keep it disabled after upgrades until review. See its [install and disable instructions](../extensions/auto-resume/README.md).
 
-It is off until someone turns it on:
+## Legacy module behavior
+
+The following sections describe the archived module only. If the owner installs and enables it, it continues a chat that a provider's usage or rate limit stopped. It waits until the reset time the provider gives, or a fixed delay when the provider gives none, then sends Pi a message to continue. It does not change the model or its sign-in, buy credits, or turn on paid overflow.
+
+## Enable the legacy module
+
+The drop-in is disabled by default. The owner must install it and enable `auto-resume.ts` in Menu → Extensions. After that, its chat controls are available:
 
 - **Menu → Auto-resume** opens its sheet. **This chat** turns it on or off in the open chat; **Use default** returns the chat to the owner's default. The owner also sees **All chats by default** and **Retry without a reset time** (15 min to 5 h; 1 h by default).
 - `/auto-resume on`, `off`, or `default` does the same for the chat, and `/auto-resume` alone says how it stands. The owner can type `/auto-resume all on`, `all off`, and `delay 45m` (10 minutes to 5 hours).
@@ -34,7 +40,7 @@ It is one try at a time, not a promise that the allowance is back: other chats a
 
 ## Which errors
 
-Providers share no error code, so the module (`src/server/extensions/_usage-limits.ts`) knows the ones that come with Pi. In this order:
+Providers share no error code, so the legacy module (`extensions/auto-resume/_usage-limits.ts`) knows the ones that come with Pi. In this order:
 
 1. A **daily, weekly, or monthly** limit never resumes by itself: "weekly", "monthly", "per day", Google's `PerDay` quotas, Kimi's `TPD`, Codex's window longer than 300 minutes, Anthropic's 7-day window. A reset more than five hours away does not either.
 2. A **five-hour or session** window is a limit, even when its words also mention a balance (Z.ai's "Usage limit reached for the past 5 hours. Insufficient balance for extra usage").
@@ -64,17 +70,17 @@ Providers share no error code, so the module (`src/server/extensions/_usage-limi
 ## Check it
 
 ```sh
-node --test test/usage-limits.test.ts test/auto-resume.test.ts test/auto-resume-ui.test.ts test/provider-limits.test.ts
+PATH="$HOME/.nvm/versions/node/v24.21.0/bin:$PATH" node --test test/usage-limits.test.ts test/auto-resume.test.ts test/auto-resume-ui.test.ts test/provider-limits.test.ts
 ```
 
-The tests use scripted models and temporary data: no request goes to a provider. They cover each provider's errors, a retry at the reset time across a restart with the clock moved on, the fixed delay and its count, giving up, billing errors, an answer that ends a retry, Pi's own retry that recovers, who may change what, and the sheet on a phone's screen in Chromium.
+The tests use scripted models and temporary data: no request goes to a provider. Node 24.21.0 is required for the upstream limit-gate timer tests; Node 23 cancels those tests because their timers are unreferenced. Auto-resume tests cover provider errors, restarts, retry counts, cancellation, permissions, disabled drop-in behavior with Scheduled messages active, and the sheet in Chromium where available.
 
 ## Local bridges
 
 This installation's unofficial bridges are not in the table above. Each rewrites its own limit words into a form the rules read:
 
-- **Claude Bridge** (`src/server/claude-bridge/limits.ts`, copied to `extensions/_claude-bridge/`): Claude Code's "You've hit your limit · resets 3pm (Europe/Paris)", "Claude AI usage limit reached|<seconds>", and pi-claude-bridge's "Claude rate limit (five_hour) — resets …" become a five-hour limit with `resets_at`. `seven_day` kinds, "weekly", and a reset on a weekday become a weekly limit. Spend limits and credit stay as they are.
-- **Cursor Bridge** (`src/server/cursor-bridge-limits.ts`, used by `extensions/cursor-bridge.ts`): "Usage limit exceeded" and `usage_limit_exceeded` (on-demand usage off) read as a monthly limit. "Rate limit exceeded" retries after the fixed delay.
+- **Claude Bridge** (`extensions/provider-bridges/_claude-bridge-public/limits.ts`): Claude Code's "You've hit your limit · resets 3pm (Europe/Paris)", "Claude AI usage limit reached|<seconds>", and pi-claude-bridge's "Claude rate limit (five_hour) — resets …" become a five-hour limit with `resets_at`. `seven_day` kinds, "weekly", and a reset on a weekday become a weekly limit. Spend limits and credit stay as they are.
+- **Cursor Bridge** (`extensions/provider-bridges/_cursor-bridge-limits.ts`, used by `extensions/provider-bridges/cursor-bridge.ts`): "Usage limit exceeded" and `usage_limit_exceeded` (on-demand usage off) read as a monthly limit. "Rate limit exceeded" retries after the fixed delay.
 - **Gemini Bridge** needs nothing: CLIProxyAPI passes Google's "Your quota will reset after 2h34m12s" and `quotaResetDelay` on.
 
 `test/bridge-limits.test.ts` checks them.

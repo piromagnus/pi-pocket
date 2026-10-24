@@ -3,9 +3,12 @@
 // https://cursor.com/docs/sdk/typescript, and CLIProxyAPI's issue 5265.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { classify, RESET_GRACE_MS } from "../src/server/extensions/_usage-limits.ts";
-import { claudeLimitText, nextClock } from "../src/server/claude-bridge/limits.ts";
-import { cursorLimitText } from "../src/server/cursor-bridge-limits.ts";
+import { classify, RESET_GRACE_MS } from "../extensions/auto-resume/_usage-limits.ts";
+import {
+    claudeLimitText,
+    nextClock,
+} from "../extensions/provider-bridges/_claude-bridge-public/limits.ts";
+import { cursorLimitText } from "../extensions/provider-bridges/_cursor-bridge-limits.ts";
 
 // 2026-10-22 14:00 in Paris (UTC+2).
 const now = Date.parse("2026-10-22T12:00:00Z");

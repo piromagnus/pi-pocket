@@ -83,7 +83,12 @@ interface PocketConfig {
      */
     subagentModels?: string[];
     ponytailMode?: "off" | "lite" | "full" | "ultra";
+    /** The most hours a run waits for a model's limit to clear (`limit-gate.ts`); 0: it does not wait. Absent: 6. */
+    limitWaitHours?: number;
 }
+
+/** The hours a run waits for a model's limit to clear, until the owner says otherwise. */
+export const DEFAULT_LIMIT_WAIT_HOURS = 6;
 
 /** Who may allow a risky tool call: anyone who can steer, or (for guests) only someone other than who asked. */
 export type ApprovalRule = "anyone" | "others";
@@ -215,6 +220,25 @@ export class ConfigStore {
             delete this.#config.subagentModels;
         } else {
             this.#config.subagentModels = [...models];
+        }
+
+        this.save();
+    }
+
+    /** How many hours a run waits for a limit to clear, at most; 0: not at all. */
+    get limitWaitHours(): number {
+        const hours = this.#config.limitWaitHours;
+
+        return typeof hours === "number" && Number.isFinite(hours) && hours >= 0
+            ? Math.min(hours, 24)
+            : DEFAULT_LIMIT_WAIT_HOURS;
+    }
+
+    set limitWaitHours(hours: number) {
+        if (hours === DEFAULT_LIMIT_WAIT_HOURS) {
+            delete this.#config.limitWaitHours;
+        } else {
+            this.#config.limitWaitHours = Math.min(Math.max(hours, 0), 24);
         }
 
         this.save();
