@@ -1,15 +1,7 @@
 // Model providers: signing in and out, the models subagents may use, and the dialog a
 // sign-in uses to ask for a code or a key.
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import {
-    api,
-    attempt,
-    closeSheet,
-    closeSignIn,
-    openSheet,
-    signInAnswered,
-    store,
-} from "../store.js";
+import { api, attempt, closeSheet, closeSignIn, signInAnswered, store } from "../store.js";
 import { html, Icon, Loader, Sheet } from "../ui.js";
 import { RefreshModels } from "../model-refresh.js";
 

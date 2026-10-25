@@ -148,8 +148,7 @@ test("the example extensions load as drop-ins, off until the owner turns them on
     const reading = (await status.route.handle({} as never)) as { cpus: number; load: number[] };
 
     assert.ok(reading.cpus > 0 && reading.load.length === 3);
-    assert.ok(
-        app.webs.clients(owner(app)).some((client) => client.module === "server-status"),
-        "its browser module is there",
-    );
+    const client = app.webs.clients(owner(app)).find((each) => each.module === "server-status");
+
+    assert.ok(client !== undefined, "its browser module is there");
 });
