@@ -11,6 +11,6 @@ Use each package's installation instructions. Do not install a second copy of an
 
 ## Remaining core integration
 
-SSH workspaces still need environment selection, admission checks, and fail-closed handling in core. Provider usage still needs response-header observations and the current-working-directory host accessor. The small `/all-usage` browser shortcut retains its existing snapshot-opening behavior.
+SSH workspaces still need environment selection, admission checks, and fail-closed handling in core. Provider usage still needs response-header observations and the current-working-directory host accessor.
 
 These integration points stay in core because the upstream extension API cannot yet preserve those behaviors alone. Stored document kinds, credentials, and session data must not be renamed or reset when moving their implementation.

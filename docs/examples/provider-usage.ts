@@ -961,7 +961,7 @@ export default function createProviderUsage(host: PocketHost, options: Options =
                 content: [
                     {
                         type: "text" as const,
-                        text: "Updated the Provider usage dashboard (artifact provider-usage). Open it from Menu → Artifacts → Provider usage, or run /all-usage in this conversation. Ask for provider usage again to refresh this same dashboard.",
+                        text: "Updated the Provider usage dashboard (artifact provider-usage). Open it from Menu → Artifacts → Provider usage. Ask for provider usage again to refresh this same dashboard.",
                     },
                 ],
             };
@@ -975,7 +975,7 @@ export default function createProviderUsage(host: PocketHost, options: Options =
             section(
                 "provider_usage",
                 () =>
-                    "When someone asks about subscription usage, remaining allowance, provider limits, or provider spending, call subscription_usage to show one dashboard. Each call refreshes its snapshot. Never describe unavailable usage as zero. The dashboard is visible to participants in this conversation; do not proactively fetch private account usage. The /all-usage command opens the latest snapshot without a new fetch.",
+                    "When someone asks about subscription usage, remaining allowance, provider limits, or provider spending, call subscription_usage to show one dashboard. Each call refreshes its snapshot. Never describe unavailable usage as zero. The dashboard is visible to participants in this conversation; do not proactively fetch private account usage.",
             ),
         ],
     });

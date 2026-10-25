@@ -3422,11 +3422,18 @@ pre.diff .del {
     }
 }
 
+/* The buttons that extensions add to the row are optional too, and any number of them can come: while Pi works they step
+ * aside on a narrow box, so Steer, Queue, Interrupt, and Stop stay inside it. They show again after. */
+@container composer (max-width: 480px) {
+    .composer.busy .composer-row .ext-composer-button {
+        display: none;
+    }
+}
+
 /* Below a 360 px screen (an iPhone SE is 320 px), Steer, Queue, and Interrupt would push Stop out of the box: while Pi
  * works, Attach goes and the three get closer. Attach comes back when Pi stops. A 360 px screen's box is 334 px. */
 @container composer (max-width: 333px) {
-    .composer.busy .composer-row .attach-button,
-    .composer.busy .composer-row .chip.toggle {
+    .composer.busy .composer-row .attach-button {
         display: none;
     }
 

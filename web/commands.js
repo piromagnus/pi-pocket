@@ -28,10 +28,6 @@ export const schedulesAvailable = () =>
     isSession() && store.state.server?.extensions?.includes("pocket-schedules") === true;
 const goalsAvailable = () =>
     isSession() && store.state.server?.extensions?.includes("pocket-goals") === true;
-/** The provider usage dashboard needs its drop-in extension, and a session. */
-const usageAvailable = () =>
-    isSession() &&
-    store.state.server?.extensions?.includes("subscriptions-usage-dashboard") === true;
 
 /** Webhooks need the triggers extension; so does watching a PR, which is for sessions other than PiP. */
 export const triggersOn = () =>
@@ -230,20 +226,6 @@ function showSession() {
 }
 
 /**
- * `/all-usage`: open this conversation's usage dashboard if there is one; otherwise ask Pi to publish it.
- * Any participant with steering rights can request a dashboard; viewers can open existing snapshots.
- */
-function showUsage() {
-    const artifact = store.state.view.artifacts.find((each) => each.id === "provider-usage");
-
-    if (artifact) {
-        return openSheet({ type: "viewer", id: artifact.id });
-    }
-
-    return actions.submit("show provider usage", [], "steer");
-}
-
-/**
  * `args` in brackets is optional. `available` hides a command where it does not apply. Keep the names the same as
  * `BUILT_IN_COMMANDS` in `src/server/extension-web.ts`, which keeps them from extensions' commands.
  */
@@ -379,12 +361,6 @@ const COMMANDS = [
         run: (arg) => openSheet({ type: "find", query: arg }),
     },
     { name: "session", description: "Show the model, context use, and cost", run: showSession },
-    {
-        name: "all-usage",
-        description: "Show the provider usage dashboard: subscriptions and API keys in one view",
-        available: usageAvailable,
-        run: showUsage,
-    },
     {
         name: "export",
         description: "Download this conversation as Markdown",

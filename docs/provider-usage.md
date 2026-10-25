@@ -7,7 +7,7 @@ An opt-in owner drop-in that gathers connected subscriptions and API providers i
 1. Review the **complete source** in [examples/provider-usage.ts](examples/provider-usage.ts). It runs inside Pi Pocket with the owner's rights, outside tool-call approval checks.
 2. Copy that file to the data folder's `extensions/provider-usage.ts` (normally `~/.pi-pocket/extensions/provider-usage.ts`). It starts disabled. The source imports this checkout's artifact implementation by absolute path; adjust that import and the `PocketHost` type import if your checkout is elsewhere. The extension folder's `node_modules` link supplies Pocket's dependencies.
 3. The owner enables **provider-usage.ts** in **Menu → Extensions**. No server restart is needed.
-4. Ask **“show provider usage”**, or run the **/all-usage** command: it opens the dashboard when this conversation already has one, and asks Pi to publish it when it does not. **Menu → Artifacts → Provider usage** opens it too.
+4. Ask **“show provider usage”**: Pi publishes the dashboard in this conversation. **Menu → Artifacts → Provider usage** opens it again.
 5. Ask again to refresh. Each call creates a new version of the same artifact ID, `provider-usage`, in that conversation. Old versions remain available.
 
 It cannot be enabled by Pi itself. To stop it, turn it off in Menu → Extensions. Existing dashboard snapshots remain in the conversation.
