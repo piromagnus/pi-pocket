@@ -3430,9 +3430,10 @@ pre.diff .del {
     }
 }
 
-/* Below a 360 px screen (an iPhone SE is 320 px), Steer, Queue, and Interrupt would push Stop out of the box: while Pi
- * works, Attach goes and the three get closer. Attach comes back when Pi stops. A 360 px screen's box is 334 px. */
-@container composer (max-width: 333px) {
+/* On a screen up to 360 px wide (an iPhone SE is 320 px; a 360 px screen's box is 334 px, and the row needs 335), Steer,
+ * Queue, and Interrupt would push Stop out of the box: while Pi works, Attach goes and the three get closer. Attach
+ * comes back when Pi stops. */
+@container composer (max-width: 340px) {
     .composer.busy .composer-row .attach-button {
         display: none;
     }
@@ -3440,6 +3441,25 @@ pre.diff .del {
     .composer.busy .mode-switch button {
         padding-inline: 6px;
     }
+}
+
+/* Whatever else takes room in the row, Stop, Send, and the mic keep theirs, and the three modes give way: their labels
+ * are cut before Stop leaves the box. */
+.composer.busy .composer-row :is(.stop-button, .send-button, .composer-mic) {
+    flex: none;
+}
+
+.composer.busy .mode-switch {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.composer.busy .mode-switch button {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .chip {
