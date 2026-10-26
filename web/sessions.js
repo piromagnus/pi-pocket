@@ -1,13 +1,20 @@
 // The sidebar: the rail (Pi, the tools, and you; folded, numbered sessions too) and the session list beside it, in the
 // sidebar, the drawer, and a phone's home screen; and the order and archiving of sessions.
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Avatar, folderColor, initials } from "./avatar.js";
 import { goHome, useBack } from "./back.js";
-import { ExtensionRailButtons } from "./extension-ui.js";
+import {
+    ExtensionRailButtons,
+    sessionActions,
+    sessionChips,
+    sessionFilters,
+    sessionFilterTest,
+    sessionWords,
+} from "./extension-ui.js";
 import { useDragToClose } from "./gestures.js";
 import { PeeksRailButton } from "./peeks.js";
 import { PipRailButton } from "./pip.js";
-import { sessionForest } from "./session-tree.js";
+import { sessionForest, unfolded } from "./session-tree.js";
 import {
     actions,
     canSteer,
@@ -22,20 +29,26 @@ import {
     stillMoving,
     store,
     workspaceOrder,
+    foldsNow,
+    toggleFoldedLinked,
 } from "./store.js";
 import { finishedUnseen } from "./seen.js";
 import { isPinned, prefs, setPrefs, togglePin } from "./theme.js";
 import {
     APPLE,
-    apartFromViews,
+    drawnFor,
     html,
     Icon,
+    memo,
+    NO_HOVER,
     railState,
     scrimPress,
     shortPath,
     Slide,
     timeAgo,
+    useMinute,
     usePresence,
+    useScrollMore,
     useSide,
     useSlide,
 } from "./ui.js";
@@ -166,15 +179,55 @@ const readClosed = () => {
     }
 };
 
+/** The fold's name for a screen reader: how many, and what its dot says (`aria-expanded` says whether they show). */
+function foldLabel(kids, trouble) {
+    const count = `${kids} linked ${kids === 1 ? "session" : "sessions"}`;
+
+    return trouble === "waiting"
+        ? `${count}, one needs you`
+        : trouble === "failed"
+          ? `${count}, one failed`
+          : count;
+}
+
+/** Whether a session folded away under `id` waits for you or failed: the fold shows it, as a folded group does. */
+function hiddenTrouble(group, id) {
+    const at = group.hidden.findIndex((row) => row.session.id === id);
+
+    if (at === -1) {
+        return undefined;
+    }
+
+    const depth = group.hidden[at].branches.length;
+
+    for (const row of group.hidden.slice(at + 1)) {
+        if (row.branches.length <= depth) {
+            break;
+        }
+
+        const shape = sessionMark(row.session).shape;
+
+        if (shape === "waiting" || shape === "failed") {
+            return shape;
+        }
+    }
+
+    return undefined;
+}
+
 const DAY = 86_400_000;
 
-/** Which day bucket a time falls in, in this device's time zone. */
-function dayGroup(ms) {
+/** When today began, in this device's time zone: worked out once for each grouping, not once for each session. */
+function todayStart() {
     const today = new Date();
 
     today.setHours(0, 0, 0, 0);
-    const start = today.getTime();
 
+    return today.getTime();
+}
+
+/** Which day bucket a time falls in, in this device's time zone: `start` is when today began (`todayStart`). */
+function dayGroup(ms, start) {
     if (ms >= start) {
         return "Today";
     }
@@ -257,14 +310,19 @@ export function selectFromList(id) {
 
 /**
  * The square at the start of a session's row: its folder's color, in the shape of where the session is. The first that
- * holds wins: a call waiting for you, Pi or its subagents at work, a failed run (solid while new, drawn once seen),
+ * holds wins: a call waiting for you, a request waiting for its provider's limit to clear, Pi or its subagents at work, a failed run (solid while new, drawn once seen),
  * finished since this browser last looked or marked unread (solid), and read or never run (hollow).
  */
-function stateMark(session, working, marked) {
-    const fresh = marked || finishedUnseen(session);
+function stateMark(session, working, marked, unseen = finishedUnseen(session)) {
+    const fresh = marked || unseen;
 
     if (session.waiting) {
         return { shape: "waiting", label: "Waiting for approval" };
+    }
+
+    // Pi's request waits for the provider's limit to clear: working, held up, until a time or a try.
+    if (session.limited !== undefined) {
+        return { shape: "limited", label: "Waiting for a usage limit" };
     }
 
     if (session.busy || working) {
@@ -283,11 +341,18 @@ function stateMark(session, working, marked) {
 /** A row's state for themes (`data-state`), by its square's shape: a documented name that stays when the squares change. */
 const ROW_STATES = {
     waiting: "waiting",
+    limited: "limited",
     working: "working",
     failed: "failed",
     fresh: "done",
     seen: "idle",
 };
+
+/**
+ * Sessions whose rows this page has drawn. A row rises in only the first time: back to the list on a phone builds the
+ * list anew, and every row rising in again made it flicker. A session new to the page (started since) still rises in.
+ */
+const shownRows = new Set();
 
 /** A session's square, as its row in the list draws it (the home screen's Jump back in too). */
 export function sessionMark(session) {
@@ -303,11 +368,17 @@ export function sessionMark(session) {
 /**
  * One session on one line: its folder's color in the shape of its state, its title, and on the right what goes on there (its working subagents,
  * who else is in it, Pi working, a call waiting for you), unread chat, and how long ago. Its folder and model are in
- * its tooltip.
+ * its tooltip. Memoized (`memo`): it reads nothing of the store as it draws, only its props, which `AllSessions` works
+ * out for it. `minute` and `extensionsRev` draw it again as time passes and as extensions' chips and words change.
  */
 function SessionRow({
     session,
     branches,
+    kids,
+    folded,
+    foldHeld,
+    foldTrouble,
+    onFold,
     index,
     number,
     needle,
@@ -316,15 +387,27 @@ function SessionRow({
     folders,
     onPick,
     onSelect,
+    hoverAction,
+    open,
+    pinned,
+    marked,
+    unread,
+    unseen,
+    moving,
+    home,
+    meId,
+    collabs,
+    steers,
+    hovers,
 }) {
-    const { conversationId, server, me } = store.state;
-    const pinned = isPinned(session.id);
-    const open = session.id === conversationId && !session.archived;
-    const marked = isUnread(session.id);
-    const unread = collab() && sessionUnread(session) && !open;
-    const moving = store.state.moving[session.id] !== undefined;
+    // Where it rises in, in turn, when it is new to this page; null when it shows as it was.
+    const [arrival] = useState(() => (shownRows.has(session.id) ? null : index));
+
+    useLayoutEffect(() => {
+        shownRows.add(session.id);
+    }, []);
     const title = session.title ?? "New session";
-    const path = shortPath(session.cwd, server?.home);
+    const path = shortPath(session.cwd, home);
     const where = [
         session.worktree ? `${path} ⎇ ${session.worktree.branch}` : path,
         session.model,
@@ -347,24 +430,31 @@ function SessionRow({
         hit = at > 0 ? `…/${parts.slice(at).join("/")}` : hit;
     }
 
+    // Or a word an extension gave it, such as a tag.
+    if (needle && hit === undefined && !title.toLowerCase().includes(needle)) {
+        hit = sessionWords(session).find((word) => word.includes(needle));
+    }
+
+    // What extensions show on the row, under its title.
+    const chips = sessionChips(session);
+
     const counts = session.subagents ?? {};
     const live = (counts.working ?? 0) + (counts.waiting ?? 0);
     const failed = failing(counts);
     // Subagents at work, or failed ones nobody dealt with, but not over a call waiting for you: that says more.
     const fork = !session.waiting && (live > 0 || failed > 0);
-    const person = collab() ? (session.people ?? []).find((each) => each.id !== me?.id) : undefined;
-    const mark = stateMark(session, live > 0, marked);
-    // Finished since this browser last looked: its result is unread, so its title reads bold.
-    const unseen = finishedUnseen(session);
+    const person = collabs ? (session.people ?? []).find((each) => each.id !== meId) : undefined;
+    const mark = stateMark(session, live > 0, marked, unseen);
     // Archive, pin, and mark-unread show on hover; an archived session only comes back, and only for people who steer.
-    const acts = (canSteer() ? 1 : 0) + (session.archived ? 0 : 2);
+    // And the first extension action with an icon (`pocket.sessionAction`). None where nothing hovers (`hovers`).
+    const acts = hovers ? (steers ? 1 : 0) + (session.archived ? 0 : 2) + (hoverAction ? 1 : 0) : 0;
 
     return html`<div
-        class=${`session-row ${open ? "active" : ""} ${selected ? "selected" : ""} ${pressing ? "pressing" : ""} ${moving ? "moving" : ""} ${marked ? "marked-unread" : ""} ${unseen ? "unseen" : ""} ${["no-acts", "one-act", "", "three-acts"][acts]}`}
+        class=${`session-row ${kids > 0 ? "with-fold" : ""} ${arrival === null ? "" : "arriving"} ${open ? "active" : ""} ${selected ? "selected" : ""} ${pressing ? "pressing" : ""} ${moving ? "moving" : ""} ${marked ? "marked-unread" : ""} ${unseen ? "unseen" : ""} ${chips.length > 0 ? "with-chips" : ""} ${["no-acts", "one-act", "", "three-acts", "four-acts"][acts]}`}
         data-part="session-row"
         data-state=${ROW_STATES[mark.shape.split(" ")[0]]}
         data-id=${session.id}
-        style=${`--i:${index};--linked-depth:${Math.min(branches.length, 3)}`}
+        style=${`${arrival === null ? "" : `--i:${arrival};`}--linked-depth:${Math.min(branches.length, 3)}`}
     >
         ${
             branches.length > 0 &&
@@ -425,13 +515,14 @@ function SessionRow({
                 ${
                     session.busy &&
                     !session.waiting &&
+                    session.limited === undefined &&
                     !fork &&
                     html`<span class="session-working" title="Working"></span>`
                 }
                 ${
                     session.waiting &&
                     html`<span class="session-needs" title="Waiting for approval">
-                        ${canSteer() ? "needs you" : "waiting"}
+                        ${steers ? "needs you" : "waiting"}
                     </span>`
                 }
                 ${
@@ -449,9 +540,72 @@ function SessionRow({
                 }
             </span>
         </button>
-        <span class="session-actions">
+        ${
+            kids > 0 &&
+            html`<button
+                class=${`session-fold ${folded ? "folded" : ""}`}
+                data-part="session-fold"
+                aria-expanded=${!folded}
+                aria-label=${foldLabel(kids, foldTrouble)}
+                title=${
+                    foldHeld
+                        ? "The open session is among them, so they show"
+                        : `${folded ? "Show" : "Hide"} ${kids} linked ${kids === 1 ? "session" : "sessions"}`
+                }
+                disabled=${foldHeld}
+                onClick=${() => onFold(session.id)}
+            >
+                ${
+                    foldTrouble &&
+                    html`<span class=${`group-trouble ${foldTrouble}`} aria-hidden="true"></span>`
+                }
+                <span class="session-fold-pill">
+                    ${kids}
+                    <${Icon} name="down" size=${10} />
+                </span>
+            </button>`
+        }
+        ${
+            chips.length > 0 &&
+            html`<span class="session-chips" data-part="session-chips">
+                ${chips.map((chip) =>
+                    chip.run
+                        ? html`<button
+                            key=${chip.key}
+                            class="session-chip"
+                            data-part="session-chip"
+                            title=${chip.title}
+                            onClick=${chip.run}
+                        >
+                            ${chip.label}
+                        </button>`
+                        : html`<span
+                            key=${chip.key}
+                            class="session-chip"
+                            data-part="session-chip"
+                            title=${chip.title}
+                        >
+                            ${chip.label}
+                        </span>`,
+                )}
+            </span>`
+        }
+        ${
+            hovers &&
+            html`<span class="session-actions">
             ${
-                canSteer() &&
+                hoverAction &&
+                html`<button
+                    class="session-act session-ext-act"
+                    title=${hoverAction.title}
+                    aria-label=${hoverAction.title}
+                    onClick=${() => hoverAction.run([session.id])}
+                >
+                    <${Icon} path=${hoverAction.iconPath} size=${14} />
+                </button>`
+            }
+            ${
+                steers &&
                 html`<button
                     class="session-act"
                     title=${session.archived ? "Unarchive" : "Archive"}
@@ -483,28 +637,55 @@ function SessionRow({
                     <${Icon} name=${marked ? "check" : "unread"} size=${14} />
                 </button>`
             }
-        </span>
+        </span>`
+        }
     </div>`;
 }
 
-/** Sessions in groups: pinned, then by day or by folder. While searching, one flat list of matches. */
-function groupsOf(shown, { tab, needle, home, pinned }) {
+/** A row draws again when what it shows changes. Its place (`index`) counts only as it mounts, for its rise-in. */
+const MemoRow = memo(SessionRow, ["index"]);
+
+/**
+ * The branch lines a linked row draws, one array for each shape: the forest makes new ones each time, and a memoized
+ * row would draw again for an array that only looks the same. There are few shapes (a row is at most a few deep).
+ */
+const branchShapes = new Map();
+
+function sameBranches(branches) {
+    const key = branches.join();
+    let shape = branchShapes.get(key);
+
+    if (shape === undefined) {
+        shape = Object.freeze([...branches]);
+        branchShapes.set(key, shape);
+    }
+
+    return shape;
+}
+
+/**
+ * Sessions in groups: pinned, then by day or by folder. While searching, one flat list of matches. `today` is when
+ * today began, and changes the day groups as days pass.
+ */
+function groupsOf(shown, { tab, needle, home, pinned, today }) {
     if (needle !== "" || tab === "archived") {
         return [{ key: "flat", label: needle ? "Matches" : "Archived", rows: shown }];
     }
 
     const groups = [];
-    const pins = shown.filter((session) => pinned.includes(session.id));
+    const pins = new Set(pinned);
+    const first = shown.filter((session) => pins.has(session.id));
 
-    if (pins.length > 0) {
-        groups.push({ key: "pinned", label: "Pinned", rows: pins });
+    if (first.length > 0) {
+        groups.push({ key: "pinned", label: "Pinned", rows: first });
     }
 
-    const rest = shown.filter((session) => !pinned.includes(session.id));
+    const rest = shown.filter((session) => !pins.has(session.id));
     const byKey = new Map();
 
     for (const session of rest) {
-        const key = tab === "folders" ? `dir:${session.cwd}` : `day:${dayGroup(session.updatedAt)}`;
+        const day = tab === "folders" ? "" : dayGroup(session.updatedAt, today);
+        const key = tab === "folders" ? `dir:${session.cwd}` : `day:${day}`;
 
         if (!byKey.has(key)) {
             byKey.set(key, {
@@ -512,7 +693,7 @@ function groupsOf(shown, { tab, needle, home, pinned }) {
                 label:
                     tab === "folders"
                         ? html`<${FolderName} path=${shortPath(session.cwd, home)} />`
-                        : dayGroup(session.updatedAt),
+                        : day,
                 rows: [],
             });
         }
@@ -541,6 +722,24 @@ function AllSessions({ compact = false }) {
     const [query, setQueryState] = useState(() => (compact ? "" : listKept.query));
     const [tab, setTabState] = useState(() => (prefs().group === "folder" ? "folders" : "recent"));
     const [closed, setClosed] = useState(readClosed);
+    // Linked sessions folded away (`store.js`), but never above the open session, which always shows.
+    const { foldedLinked, conversationId: openId } = store.state;
+    const folded = useMemo(() => foldsNow(), [foldedLinked, openId, sessions]);
+    // The sessions above the open one: their folds stay open, so their fold buttons do nothing and are off.
+    const holdsOpen = useMemo(() => {
+        const byId = new Map(sessions.map((session) => [session.id, session]));
+        const above = new Set();
+
+        for (
+            let at = byId.get(openId)?.linkedFrom?.id;
+            at !== undefined && !above.has(at);
+            at = byId.get(at)?.linkedFrom?.id
+        ) {
+            above.add(at);
+        }
+
+        return above;
+    }, [openId, sessions]);
     const [selected, setSelectedState] = useState(() => new Set());
     // Taps select rows instead of opening them: a selection started from a long press's sheet, on a touch screen.
     const [tapSelects, setTapSelects] = useState(false);
@@ -616,31 +815,71 @@ function AllSessions({ compact = false }) {
         }
     };
 
-    const shown = sessions.filter(
-        (session) =>
-            Boolean(session.archived) === archived &&
-            (needle === "" ||
-                `${session.title ?? ""} ${session.cwd} ${shortPath(session.cwd, server?.home)} ${session.model ?? ""}`
-                    .toLowerCase()
-                    .includes(needle)),
-    );
-    const forest = sessionForest(shown, { pinned, folders: tab === "folders" });
-    const groups = groupsOf(forest.roots, { tab, needle, home: server?.home, pinned }).map(
-        (group) => ({
-            ...group,
-            rows: group.rows.flatMap((root) => forest.rows.get(root.id)),
-        }),
-    );
+    // What changes the list's rows: the sessions and pins, the tab and the search, extensions' filters and words
+    // (`extensionsRev`), and the day, which moves sessions between the day groups. Worked out again only when one of
+    // them changes, not on every draw.
+    const { extensionsRev } = store.state;
+    const minute = useMinute();
+    const today = useMemo(todayStart, [minute]);
+    const home = server?.home;
+    const { shown, kept, groups } = useMemo(() => {
+        // Extensions' filters that are on (`pocket.sessionFilter`): a session shows only when each keeps it.
+        const kept = sessionFilterTest();
+        const shown = sessions.filter(
+            (session) =>
+                Boolean(session.archived) === archived &&
+                (needle === "" ||
+                    `${session.title ?? ""} ${session.cwd} ${shortPath(session.cwd, home)} ${session.model ?? ""} ${sessionWords(session).join(" ")}`
+                        .toLowerCase()
+                        .includes(needle)) &&
+                (kept === null || kept(session)),
+        );
+        const forest = sessionForest(shown, { pinned, folders: tab === "folders" });
+        const groups = groupsOf(forest.roots, { tab, needle, home, pinned, today }).map((group) => {
+            const rows = group.rows.flatMap((root) => forest.rows.get(root.id));
 
-    visible.current = groups.flatMap((group) =>
-        closed.has(group.key) && group.key !== "flat"
-            ? []
-            : group.rows.map(({ session }) => session.id),
+            return {
+                ...group,
+                total: rows.length,
+                rows: needle === "" ? unfolded(rows, folded) : rows,
+                // What each folded row hides, for the marks it stands in for.
+                hidden: needle === "" ? rows : [],
+            };
+        });
+
+        return { shown, kept, groups };
+    }, [sessions, pinned, tab, needle, home, today, extensionsRev, folded]);
+
+    visible.current = useMemo(
+        () =>
+            groups.flatMap((group) =>
+                closed.has(group.key) && group.key !== "flat"
+                    ? []
+                    : group.rows.map(({ session }) => session.id),
+            ),
+        [groups, closed],
     );
-    const chosen = shown.filter((session) => selected.has(session.id)).map((session) => session.id);
-    // Taps select while the bar shows: not for rows selected and then hidden (archived, or searched away).
+    const chosen = useMemo(() => {
+        if (selected.size === 0) {
+            return [];
+        }
+
+        // A row a fold hides is not chosen: an action runs only on rows the person can see were picked.
+        const rows = new Set(
+            groups.flatMap((group) => group.rows.map(({ session }) => session.id)),
+        );
+
+        return shown
+            .filter((session) => selected.has(session.id) && rows.has(session.id))
+            .map((session) => session.id);
+    }, [shown, groups, selected]);
+    // Taps select while the bar shows: not for rows selected and then hidden (archived, searched away, or folded).
     const tapping = tapSelects && chosen.length > 0;
-    const numbers = new Map(workspaceOrder().map((session, index) => [session.id, index]));
+    const order = workspaceOrder();
+    const numbers = useMemo(
+        () => new Map(order.map((session, index) => [session.id, index])),
+        [order],
+    );
 
     /** The rows from `from` to `to` as they show, or just `to` when either is out of view. */
     const span = (from, to) => {
@@ -987,6 +1226,8 @@ function AllSessions({ compact = false }) {
         return () => removeEventListener("keydown", onKey);
     }, [selecting]);
 
+    const toggleFold = (id) => toggleFoldedLinked(id);
+
     const toggleGroup = (key) => {
         const next = new Set(closed);
 
@@ -1000,11 +1241,75 @@ function AllSessions({ compact = false }) {
         setClosed(next);
     };
 
-    const tabBar = useSlide(tabs, "button.on", "x");
-    const count = sessions.filter((session) => !session.archived).length;
+    // The tabs are as wide as each other: only another tab, or the bar resized, moves the marker.
+    const tabBar = useSlide(tabs, "button.on", "x", tab);
+    const count = useMemo(() => sessions.filter((session) => !session.archived).length, [sessions]);
+    const filters = sessionFilters();
+    const steers = canSteer();
+    // Made again only when extensions or this person's steering change: rows keep the same action while they do not.
+    const extActions = useMemo(sessionActions, [extensionsRev, steers]);
+    const hoverAction = extActions.find((action) => action.iconPath !== null);
+    // Rows' handlers that stay the same from draw to draw, so a row draws again only when what it shows changes. They
+    // call this draw's `pick` and `select`, which see this draw's selection.
+    const handlers = useRef(null);
+
+    handlers.current = { pick, select, toggleFold };
+    const [onPick] = useState(() => (event, id) => handlers.current.pick(event, id));
+    const [onSelect] = useState(() => (event, id) => handlers.current.select(event, id));
+    const [onFold] = useState(() => (id) => handlers.current.toggleFold(id));
+    // What every row reads of the store, read once here: rows read none of it themselves (`SessionRow`). Marks, seen
+    // marks, and read times come through `isUnread`, `finishedUnseen`, and `sessionUnread`.
+    const { conversationId, me, moving } = store.state;
+    const collabs = collab();
+    // Row buttons that only a hovering pointer shows (`NO_HOVER`): touch screens draw none.
+    const hovers = !NO_HOVER.matches;
+
+    const rowOf = ({ session, branches, descendants }, index, group) => {
+        const open = session.id === conversationId && !session.archived;
+        // Linked sessions fold under the one that started them; a search shows them all, with nothing to fold.
+        const kids = needle === "" ? descendants : 0;
+        const isFolded = kids > 0 && folded.has(session.id);
+
+        return html`<${MemoRow}
+            key=${session.id}
+            session=${session}
+            branches=${sameBranches(branches)}
+            kids=${kids}
+            folded=${isFolded}
+            foldHeld=${holdsOpen.has(session.id)}
+            foldTrouble=${isFolded ? hiddenTrouble(group, session.id) : undefined}
+            onFold=${onFold}
+            index=${index}
+            number=${numbers.get(session.id)}
+            needle=${needle}
+            selected=${selected.has(session.id)}
+            pressing=${pressing === session.id}
+            folders=${tab === "folders" && needle === ""}
+            onPick=${onPick}
+            onSelect=${onSelect}
+            hoverAction=${hoverAction}
+            open=${open}
+            pinned=${isPinned(session.id)}
+            marked=${isUnread(session.id)}
+            unread=${collabs && !open && sessionUnread(session)}
+            unseen=${finishedUnseen(session)}
+            moving=${moving[session.id] !== undefined}
+            home=${home}
+            meId=${me?.id}
+            collabs=${collabs}
+            steers=${steers}
+            hovers=${hovers}
+            minute=${minute}
+            extensionsRev=${extensionsRev}
+        />`;
+    };
+
     let index = 0;
 
-    return html`<div class=${`sessions ${compact ? "compact" : ""}`} data-part="session-list">
+    return html`<div
+        class=${`sessions ${compact ? "compact" : ""} ${tapping ? "tap-selecting" : ""}`}
+        data-part="session-list"
+    >
         <div class="sessions-head">
             <span class="sessions-name" data-part="session-list-title">Sessions</span>
             <span class="sessions-count">${sessionsLoaded ? count : ""}</span>
@@ -1013,7 +1318,7 @@ function AllSessions({ compact = false }) {
                 html`<button
                     class="new-button"
                     title="New session (Alt+N)"
-                    onClick=${() => openSheet({ type: "cwd", mode: "new" })}
+                    onClick=${() => openSheet({ type: "cwd", mode: "new", fromList: true })}
                 >
                     <${Icon} name="plus" size=${14} />
                     New
@@ -1069,6 +1374,23 @@ function AllSessions({ compact = false }) {
                             <${Icon} name="command" size=${14} />
                         </button>`
             }
+            ${filters.map(
+                (filter) => html`<button
+                    key=${filter.key}
+                    class=${`search-filter badge-host ${filter.on ? "on" : ""}`}
+                    data-part="session-filter"
+                    data-state=${filter.on ? "on" : "off"}
+                    title=${filter.title}
+                    aria-label=${[filter.title, filter.badge, filter.on ? "on" : ""].filter(Boolean).join(", ")}
+                    onClick=${(event) => {
+                        event.preventDefault();
+                        filter.run();
+                    }}
+                >
+                    <${Icon} path=${filter.iconPath} size=${14} />
+                    ${filter.badge !== "" && html`<span class="badge">${filter.badge}</span>`}
+                </button>`,
+            )}
         </label>
         <div class="session-tabs" data-part="session-tabs" role="tablist" ref=${tabs}>
             ${TABS.map(
@@ -1093,14 +1415,14 @@ function AllSessions({ compact = false }) {
                 sessionsLoaded &&
                 shown.length === 0 &&
                 html`<div class="sessions-empty">
-                    ${archived ? "No archived sessions." : needle ? "No matches." : "No sessions yet. Start one with New."}
+                    ${kept !== null && !needle ? "No sessions match the filters." : archived ? "No archived sessions." : needle ? "No matches." : "No sessions yet. Start one with New."}
                 </div>`
             }
             ${groups.map((group) => {
                 const isClosed = closed.has(group.key) && group.key !== "flat";
                 // A folded group hides its rows' marks: say when one waits for you or its run failed.
                 const trouble = isClosed
-                    ? group.rows
+                    ? group.hidden
                           .map((row) => sessionMark(row.session).shape)
                           .find((shape) => shape === "waiting" || shape === "failed")
                     : undefined;
@@ -1135,7 +1457,7 @@ function AllSessions({ compact = false }) {
                                     ></span>`
                                 }
                                 <span class="group-count" data-part="session-group-count">
-                                    ${group.rows.length}
+                                    ${group.total}
                                 </span>
                                 ${group.key !== "flat" && html`<${Icon} name="down" size=${11} />`}
                             </button>`
@@ -1143,22 +1465,7 @@ function AllSessions({ compact = false }) {
                     }
                     <div class="group-body" inert=${isClosed}>
                         <div>
-                            ${group.rows.map(
-                                ({ session, branches }) =>
-                                    html`<${SessionRow}
-                                        key=${session.id}
-                                        session=${session}
-                                        branches=${branches}
-                                        index=${index++}
-                                        number=${numbers.get(session.id)}
-                                        needle=${needle}
-                                        selected=${selected.has(session.id)}
-                                        pressing=${pressing === session.id}
-                                        folders=${tab === "folders" && needle === ""}
-                                        onPick=${pick}
-                                        onSelect=${select}
-                                    />`,
-                            )}
+                            ${group.rows.map((row) => rowOf(row, index++, group))}
                         </div>
                     </div>
                 </section>`;
@@ -1183,6 +1490,19 @@ function AllSessions({ compact = false }) {
                         ${allPinned ? "Unpin" : "Pin"}
                     </button>`
                 }
+                ${extActions.map(
+                    (action) => html`<button
+                        key=${action.key}
+                        class="button"
+                        title=${`${action.title} (${action.module})`}
+                        onClick=${() => {
+                            clearSelection();
+                            action.run(chosen);
+                        }}
+                    >
+                        ${action.label}
+                    </button>`,
+                )}
                 <button
                     class="select-clear"
                     title="Clear the selection (Esc)"
@@ -1196,8 +1516,35 @@ function AllSessions({ compact = false }) {
     </div>`;
 }
 
-/** Not drawn again as an answer streams: it reads no conversation's view, and on a phone it stays drawn off-screen. */
-export const SessionList = apartFromViews(AllSessions);
+/**
+ * The store's keys the session list reads as it draws, itself and through what it calls: `prefs()` (`appearance`),
+ * `canSteer()`, `scoped()`, and `collab()` (`me`, `server`), `isPinned` and `workspaceOrder` (`pinned`), `isUnread`
+ * (`unread`), `sessionUnread` (`conversationId`, `chatRead`, `chatReads`, `me`), `finishedUnseen` and `sessionMark`
+ * (`peekSeen`, and `server` for when this browser started), and extensions' chips, words, filters, and actions
+ * (`extensionsRev`). The sheet and the launcher it reads only as keys are pressed.
+ */
+const LIST_KEYS = [
+    "sessions",
+    "sessionsLoaded",
+    "server",
+    "me",
+    "pinned",
+    "unread",
+    "moving",
+    "conversationId",
+    "chatRead",
+    "chatReads",
+    "peekSeen",
+    "appearance",
+    "extensionsRev",
+    "foldedLinked",
+];
+
+/**
+ * Drawn again only when what it reads changes (`LIST_KEYS`): not as an answer streams, nor for the chat, people, or
+ * the connection. Back to the list and each reconnect change little of it.
+ */
+export const SessionList = drawnFor(LIST_KEYS, AllSessions);
 
 /**
  * Subagents across the sessions, by state, as the rail counts them: archived sessions only while a subagent works
@@ -1234,9 +1581,17 @@ function RailTiles() {
     const { conversationId } = store.state;
     const items = useRef(null);
     const order = workspaceOrder();
-    const indicator = useSlide(items, ".ws.active");
+    // The tiles are as tall as each other: the open session's place in the order says where its marker goes.
+    const at = order.findIndex((session) => session.id === conversationId);
+    const indicator = useSlide(items, ".ws.active", "y", at);
+    const more = useScrollMore();
+    // One ref for both: the marker's slide reads the element, and the fades follow its scrolling.
+    const [ref] = useState(() => (element) => {
+        items.current = element;
+        more(element);
+    });
 
-    return html`<div class="rail-items" ref=${items}>
+    return html`<div class="rail-items" ref=${ref} style=${`--tiles:${order.length}`}>
         <${Slide} box=${indicator} />
         ${order.map(
             (session, index) => html`<button
@@ -1267,15 +1622,23 @@ function RailTiles() {
 function Rail({ foldable = false, folded = false }) {
     const { sessions, board, me } = store.state;
     const canStart = canSteer() && !scoped();
-    const busy = sessions.filter((session) => session.busy).length;
-    const agents = subagentTotals(sessions);
+    // Counted again only when the session list changes, not on each draw of the rail.
+    const { busy, agents } = useMemo(
+        () => ({
+            busy: sessions.filter((session) => session.busy).length,
+            agents: subagentTotals(sessions),
+        }),
+        [sessions],
+    );
     const live = agents.working + agents.waiting;
     const failed = failing(agents);
     const keys = APPLE ? "⌘B" : "Ctrl+B";
     const fold = () => setPrefs({ sidebar: folded ? "open" : "rail" });
     const role = me?.role === "owner" ? "owner" : me?.role === "viewer" ? "view only" : "guest";
+    // A rail with more buttons than room scrolls as a whole, and fades the edge where more is.
+    const more = useScrollMore();
 
-    return html`<nav class="rail" data-part="rail" aria-label="Sessions and tools">
+    return html`<nav class="rail" data-part="rail" aria-label="Sessions and tools" ref=${more}>
         ${
             foldable
                 ? html`<button
@@ -1419,8 +1782,32 @@ function Rail({ foldable = false, folded = false }) {
     </nav>`;
 }
 
-/** Not drawn again as an answer streams: it reads no conversation's view. */
-export const RailNav = apartFromViews(Rail);
+/**
+ * The store's keys the rail reads as it draws, itself and through its buttons: the session list's for its numbered
+ * sessions (`RailTiles`), the board, PiP's (`pip`, `pipOpen`), peek tiles' (`appearance`), and extensions' buttons,
+ * which show their page or panel as open (`page`, `extPanel`, `extensionsRev`).
+ */
+const RAIL_KEYS = [
+    "sessions",
+    "server",
+    "me",
+    "pinned",
+    "unread",
+    "conversationId",
+    "chatRead",
+    "chatReads",
+    "appearance",
+    "board",
+    "pip",
+    "pipOpen",
+    "page",
+    "extPanel",
+    "extensionsRev",
+    "foldedLinked",
+];
+
+/** Drawn again only when what it reads changes (`RAIL_KEYS`): not as an answer streams. */
+export const RailNav = drawnFor(RAIL_KEYS, Rail);
 
 /** The sidebar's list is this wide at least and at most; the rail beside it stays 56px. */
 const LIST_MIN = 204;

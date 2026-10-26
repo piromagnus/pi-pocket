@@ -1,8 +1,18 @@
 node_modules/
+# What an update from the app keeps while it works (src/server/update-state.ts).
+/.pocket-update/
 *.log
 .env
 .env.*
+!.env.example
 .DS_Store
 Thumbs.db
 result
 result-*
+
+# Folders docker-compose.yml mounts from the host; user data, never tracked.
+/data/
+.trail/
+
+# Local tool caches
+test/graft/

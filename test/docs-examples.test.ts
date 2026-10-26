@@ -56,6 +56,10 @@ const route: FauxResponseStep = (context) => {
         return call("my_word_count", { text: "one two  three" });
     }
 
+    if (text.includes("read the local page")) {
+        return call("read_page", { url: "http://localhost:9999/admin" });
+    }
+
     if (text.includes("plain push")) {
         return call("bash", { command: "echo git push origin main" });
     }
@@ -96,14 +100,24 @@ test("the example extensions load as drop-ins, off until the owner turns them on
     assert.deepEqual(
         listed.map((module) => [module.file, module.enabled]),
         [
+            ["claude-bridge.ts", false],
             ["clock.ts", false],
+            ["gemini-bridge.ts", false],
             ["my-words.ts", false],
             ["no-force-push.ts", false],
+            ["provider-usage.ts", false],
+            ["read-page.ts", false],
             ["server-status.ts", false],
         ],
     );
 
-    for (const file of ["clock.ts", "my-words.ts", "no-force-push.ts", "server-status.ts"]) {
+    for (const file of [
+        "clock.ts",
+        "my-words.ts",
+        "no-force-push.ts",
+        "read-page.ts",
+        "server-status.ts",
+    ]) {
         await app.setExtensionEnabled(owner(app), file, true);
     }
 
@@ -120,6 +134,10 @@ test("the example extensions load as drop-ins, off until the owner turns them on
     await say(app, id, "force push it");
     assert.match(await answer(id), /Force-pushing is turned off here/);
 
+    // host.fetchPublic refuses a name that resolves to this machine, before it connects.
+    await say(app, id, "read the local page");
+    assert.match(await answer(id), /tool said: The page could not be read: .*not a public address/);
+
     await say(app, id, "now a plain push");
     assert.match(await answer(id), /tool said: git push origin main/);
 
@@ -130,7 +148,7 @@ test("the example extensions load as drop-ins, off until the owner turns them on
     const reading = (await status.route.handle({} as never)) as { cpus: number; load: number[] };
 
     assert.ok(reading.cpus > 0 && reading.load.length === 3);
-    const [client] = app.webs.clients(owner(app));
+    const client = app.webs.clients(owner(app)).find((each) => each.module === "server-status");
 
-    assert.equal(client?.module, "server-status");
+    assert.ok(client !== undefined, "its browser module is there");
 });

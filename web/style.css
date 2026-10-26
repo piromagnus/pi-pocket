@@ -39,6 +39,7 @@
  *   Files, commands, and find      file paths and mentions, `!` commands and notes, changes, the file viewer, find,
  *                                  messages sent before
  *   Syntax and rich markdown       code colors, and pages, images, and diffs drawn in replies
+ *   Fluid motion                   Appearance's Fluid: springs, staggered arrivals, morphing layout; last, to win
  */
 
 /* ─── Fonts, tokens, and the reset ───────────────────────────── */
@@ -54,6 +55,112 @@
     font-family: "Pocket Sans";
     src: url("/fonts/Geist.woff2") format("woff2");
     font-weight: 100 900;
+    font-display: swap;
+}
+
+/* Each font's own italic, which a browser downloads only when italic text shows (comments in code, emphasis). Fira
+   Code has none: the browser slants its upright letters. */
+@font-face {
+    font-family: "Pocket Mono";
+    src: url("/fonts/JetBrainsMono-Italic.woff2") format("woff2");
+    font-weight: 100 800;
+    font-style: italic;
+    font-display: swap;
+}
+
+/* More fonts for themes to name in --sans and --mono (docs/extensions/themes.md lists them). A browser downloads one only
+   when a theme uses it. */
+
+/* The Nerd Fonts icons alone (their Mono build: one cell wide), in the private use areas they fill. */
+@font-face {
+    font-family: "Pocket Nerd Symbols";
+    src: url("/fonts/NerdFontsSymbolsMono.woff2") format("woff2");
+    font-display: swap;
+    unicode-range: U+E000-F8FF, U+F0000-F1AF0;
+}
+
+@font-face {
+    font-family: "Pocket Fira Code";
+    src: url("/fonts/FiraCode-VF.woff2") format("woff2");
+    font-weight: 300 700;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Pocket IBM Plex Mono";
+    src: url("/fonts/IBMPlexMono-Variable.woff2") format("woff2");
+    font-weight: 100 700;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Pocket IBM Plex Mono";
+    src: url("/fonts/IBMPlexMono-Variable-Italic.woff2") format("woff2");
+    font-weight: 100 700;
+    font-style: italic;
+    font-display: swap;
+}
+
+/* Iosevka has no variable font: the weights the app uses, upright and italic. 800 shows as 700, 100 as 400. Each file
+   keeps every character but drops the optional letter variants (ss and cv features) the app never turns on, which
+   were three quarters of its size. */
+@font-face {
+    font-family: "Pocket Iosevka";
+    src: url("/fonts/Iosevka-Regular.woff2") format("woff2");
+    font-weight: 400;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Pocket Iosevka";
+    src: url("/fonts/Iosevka-SemiBold.woff2") format("woff2");
+    font-weight: 600;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Pocket Iosevka";
+    src: url("/fonts/Iosevka-Bold.woff2") format("woff2");
+    font-weight: 700;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Pocket Iosevka";
+    src: url("/fonts/Iosevka-Italic.woff2") format("woff2");
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Pocket Iosevka";
+    src: url("/fonts/Iosevka-SemiBoldItalic.woff2") format("woff2");
+    font-weight: 600;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Pocket Iosevka";
+    src: url("/fonts/Iosevka-BoldItalic.woff2") format("woff2");
+    font-weight: 700;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Pocket Inter";
+    src: url("/fonts/InterVariable.woff2") format("woff2");
+    font-weight: 100 900;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Pocket Inter";
+    src: url("/fonts/InterVariable-Italic.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: italic;
     font-display: swap;
 }
 
@@ -187,12 +294,41 @@
     --t-fade: 175ms; /* fadeIn */
     --t-border: 540ms; /* border */
     --t-hover: 140ms;
+    /* Fluid motion's own (Appearance → Motion → Fluid): a spring that settles with a 2% overshoot (damping 0.78), a
+     * glide that slows to rest without one, an exit that speeds away, and the step between staggered arrivals. */
+    --ease-spring: linear(
+        0,
+        0.005 1.3%,
+        0.037 3.7%,
+        0.109 6.8%,
+        0.222 10.5%,
+        0.362 14.6%,
+        0.514 19.2%,
+        0.66 24.3%,
+        0.785 29.6%,
+        0.882 35.4%,
+        0.95 41.4%,
+        0.992 47.8%,
+        1.013 54.4%,
+        1.02 61.4%,
+        1.019 68.6%,
+        1.014 76.1%,
+        1.009 83.8%,
+        1.005 91.8%,
+        1
+    );
+    --ease-glide: cubic-bezier(0.16, 1, 0.3, 1); /* easeOutExpo */
+    --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+    --t-spring: 560ms;
+    --t-glide: 420ms;
+    --t-exit: 150ms;
+    --stagger: 24ms;
 
     /* Ligatures: none, as in a terminal. A theme may turn on a font's own (`contextual`, `normal`). */
     --ligatures: none;
     --mono:
-        "Pocket Mono", "JetBrains Mono", "JetBrainsMono Nerd Font", ui-monospace, "SF Mono", Menlo,
-        Consolas, monospace;
+        "Pocket Mono", "Pocket Nerd Symbols", "JetBrains Mono", "JetBrainsMono Nerd Font",
+        ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     --sans: "Pocket Sans", "Geist", ui-sans-serif, system-ui, sans-serif;
     color-scheme: dark;
 }
@@ -500,7 +636,7 @@ kbd {
 }
 
 :root[data-motion="reduced"] .boot-bar span {
-    width: 70%;
+    transform: scaleX(0.7);
 }
 
 /* Theme changes: the new look grows as a circle from where it was chosen (theme.js sets the place). */
@@ -573,17 +709,20 @@ kbd {
     overflow: hidden;
 }
 
+/* Scaled, not sized: a width would lay the page out on each frame, while the session it waits for loads. */
 .boot-bar span {
     display: block;
-    width: 0;
+    width: 100%;
     height: 100%;
     background: var(--body);
+    transform: scaleX(0);
+    transform-origin: left;
     animation: boot-fill 15s cubic-bezier(0.12, 0.6, 0.3, 1) forwards;
 }
 
 @keyframes boot-fill {
     to {
-        width: 70%;
+        transform: scaleX(0.7);
     }
 }
 
@@ -658,11 +797,11 @@ kbd {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    :root:not([data-motion="full"]) .pulse,
-    :root:not([data-motion="full"]) .live-dot,
-    :root:not([data-motion="full"]) .agents-dot.working,
-    :root:not([data-motion="full"]) .session-working,
-    :root:not([data-motion="full"]) .session-placeholder span {
+    :root:not([data-motion="full"], [data-motion="fluid"]) .pulse,
+    :root:not([data-motion="full"], [data-motion="fluid"]) .live-dot,
+    :root:not([data-motion="full"], [data-motion="fluid"]) .agents-dot.working,
+    :root:not([data-motion="full"], [data-motion="fluid"]) .session-working,
+    :root:not([data-motion="full"], [data-motion="fluid"]) .session-placeholder span {
         animation: none !important;
     }
 }
@@ -672,6 +811,23 @@ kbd {
 }
 
 /* ─── Layout: windows on a desktop ─────────────────────────── */
+
+/*
+ * The notch and the rounded corners at a phone's sides when it lies on its side (0 on every other screen). Only the
+ * parts at a side edge keep clear of them (the rail, the top bar, the message box, what the conversation holds), so
+ * their backgrounds still run to the edge. A sidebar owns the left edge from 960px up, and tiled windows sit inside
+ * the layout's own padding, which takes the insets: neither leaves the left inset to the pane.
+ */
+:root {
+    --inset-l: env(safe-area-inset-left);
+    --inset-r: env(safe-area-inset-right);
+}
+
+@media (min-width: 960px) {
+    :root {
+        --inset-l: 0px;
+    }
+}
 
 .layout {
     display: flex;
@@ -694,6 +850,7 @@ kbd {
 .sidebar {
     display: none;
     width: min(var(--sidebar-w, 312px), max(312px, 40vw));
+    padding-left: env(safe-area-inset-left);
     flex: none;
     flex-direction: row;
     border-right: 1px solid var(--hair);
@@ -744,6 +901,16 @@ kbd {
     margin: 0 auto;
 }
 
+/* The rail keeps its buttons clear of the notch, and its line stays at their edge; the list keeps clear of the other side. */
+.home-list > .rail {
+    width: calc(56px + var(--inset-l));
+    padding-left: var(--inset-l);
+}
+
+.home-list > .sessions {
+    padding-right: calc(12px + var(--inset-r));
+}
+
 /* A short screen (a phone on its side): the rail drops its marks (Pi, and the sessions it is on) so its buttons fit,
  * and the home list puts its search and tabs side by side, so more sessions show (where they fit). */
 @media (max-height: 500px) {
@@ -752,6 +919,14 @@ kbd {
     }
     .rail > :is(span.rail-brand, span.rail-brand + .rail-gap, span.rail-button) {
         display: none;
+    }
+}
+
+/* A phone on its side (touch, and too short for any tablet): the list takes the whole width, not a column in the
+ * middle. A short desktop window keeps its column. */
+@media (max-height: 500px) and (min-width: 600px) and (pointer: coarse) {
+    .home-list > .sessions {
+        max-width: none;
     }
 }
 
@@ -794,14 +969,19 @@ kbd {
     }
     /* Folded: the rail alone, and the sidebar's border. */
     :root[data-rail="on"] .sidebar {
-        width: 57px;
+        width: calc(57px + env(safe-area-inset-left));
     }
     :root[data-tiling="on"][data-rail="on"] .sidebar {
         width: calc(56px + 2 * var(--border));
     }
+    :root[data-tiling="on"] .sidebar {
+        padding-left: 0;
+    }
 
     :root[data-tiling="on"] .layout {
-        padding: var(--gap-out);
+        --inset-r: 0px;
+        padding: var(--gap-out) calc(var(--gap-out) + env(safe-area-inset-right)) var(--gap-out)
+            calc(var(--gap-out) + env(safe-area-inset-left));
         gap: calc(var(--gap-in) * 2);
         background: var(--desk) var(--wallpaper, none) center / cover no-repeat;
     }
@@ -899,7 +1079,7 @@ kbd {
     align-items: center;
     gap: 6px;
     min-height: calc(46px + 12px * var(--space-y) + env(safe-area-inset-top));
-    padding: env(safe-area-inset-top) 0 0;
+    padding: env(safe-area-inset-top) var(--inset-r) 0 var(--inset-l);
     border-bottom: 1px solid var(--hair);
     background: var(--bg);
 }
@@ -1308,6 +1488,12 @@ kbd {
      * message box, when a session long enough to scroll opens. */
     scrollbar-gutter: stable both-edges;
     position: relative;
+    /* The room it gives, for what may run wider than the column (a reply's code blocks and tables, below): the
+     * browser's own measure as it lays out, inside the scroll bar's gutters, so no script restyles the conversation
+     * after it is drawn. A fixed or sticky element in it keeps its place: inline-size containment makes neither a
+     * containing block nor a stacking context. */
+    container-type: inline-size;
+    padding-inline: var(--inset-l) var(--inset-r);
 }
 
 /* A column of turns: a person's message, what Pi did, Pi's reply, an approval, the live line. Its text size is
@@ -1322,6 +1508,10 @@ kbd {
     gap: calc(16px * var(--space-y));
     font-size: var(--text-size, 15px);
     line-height: var(--leading);
+}
+
+/* A session opened rises into place; on a phone, where the route slides it in, the slide alone (`transcript.js`). */
+.transcript.rising {
     animation: rise-in 0.36s var(--ease-out);
 }
 
@@ -1622,16 +1812,13 @@ kbd {
 }
 
 /*
- * A reply's code blocks and tables may run wider than its words, up to the pane's room (--pane-room, which
- * transcript.js measures) less the column's padding. A code block as wide as its longest line, at least the column's
- * width, centered on the column; a table as wide as its cells, from the column's start toward the pane's edge. On a
- * phone, and in a pane no wider than the column, the room is the column, so nothing changes.
+ * A reply's code blocks and tables may run wider than its words, up to the pane's room (the scroller's width, `cqi`)
+ * less the column's padding. A code block as wide as its longest line, at least the column's width, centered on the
+ * column; a table as wide as its cells, from the column's start toward the pane's edge. On a phone, and in a pane no
+ * wider than the column, the room is the column, so nothing changes.
  */
 .transcript {
-    --wide-room: max(
-        100%,
-        calc(var(--pane-room, 100%) - 56px * var(--space-x) - var(--transcript-gutter))
-    );
+    --wide-room: max(100%, calc(100cqi - 56px * var(--space-x) - var(--transcript-gutter)));
 }
 
 [data-part~="reply"] :is(.md, .md-part) > .code {
@@ -2043,13 +2230,25 @@ kbd {
 .timeline {
     position: relative;
     padding: calc(6px * var(--space-y)) 0;
-    animation: unroll var(--t-in) var(--ease-out);
 }
 
 /* A group that is one thought alone: its words, under the line that names it. */
 .activity-thought {
     padding: calc(10px * var(--space-y)) calc(12px * var(--space-x)) calc(12px * var(--space-y));
+}
+
+/* What a person opened unrolls (`unrolling`, transcript.js); what opens by itself (a session's open groups, a group
+ * that goes live) shows at once. A clip-path is painted on each frame, which a phone cannot spare as a session opens. */
+:is(.timeline, .activity-thought, .step-body).unrolling {
     animation: unroll var(--t-in) var(--ease-out);
+}
+
+/* Above a long group's newest steps: it shows the rest, from the rule's left. */
+.timeline-earlier {
+    display: block;
+    margin: 0 0 calc(4px * var(--space-y))
+        calc(var(--timeline-x) + var(--step-mark-size) / 2 + var(--step-gap));
+    padding: 4px 0;
 }
 
 .timeline::before {
@@ -2130,7 +2329,7 @@ kbd {
     color: var(--err);
 }
 
-.step-mark.approval {
+.step-mark.asking {
     --tint: var(--warn-soft);
     color: var(--warn);
     box-shadow:
@@ -2138,7 +2337,7 @@ kbd {
         0 0 0 3px var(--bg);
 }
 
-.step-mark.running,
+.step-mark.spinning,
 .step-mark.agent {
     --tint: var(--accent-soft);
     color: var(--accent);
@@ -2245,10 +2444,6 @@ kbd {
 
 .step-extras + .step-body {
     margin-top: 0;
-}
-
-.step-body {
-    animation: unroll var(--t-in) var(--ease-out);
 }
 
 .step-extras > .thumbs {
@@ -2444,6 +2639,26 @@ pre.diff .del {
     line-height: 1.5;
 }
 
+/* An extension's question for the person Pi works for (`host.ask`): a field for each value, a thumb's height. */
+.ask-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.ask-field input {
+    min-height: 40px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-control);
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 15px;
+}
+
 .approval-actions {
     display: flex;
     justify-content: flex-end;
@@ -2558,6 +2773,43 @@ pre.diff .del {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.live-line .live-limit {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+}
+
+.live-retry {
+    flex: none;
+    padding: 1px 8px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--accent);
+    background: transparent;
+    border: 1px solid var(--accent-soft);
+    border-radius: var(--r-control);
+    cursor: pointer;
+}
+
+.live-retry:hover {
+    background: var(--accent-soft);
+}
+
+/* Narrow: the line wraps, so the wait's facts and Retry now stay inside the column. */
+@media (max-width: 600px) {
+    .live-line {
+        flex-wrap: wrap;
+        row-gap: 2px;
+    }
+
+    .live-line .live-limit {
+        flex: 0 1 auto;
+    }
+
+    .live-why {
+        flex: 1 1 100%;
+    }
 }
 
 .live-esc {
@@ -2742,8 +2994,9 @@ pre.diff .del {
 /* ─── Composer ─────────────────────────────────────────────── */
 
 .composer-wrap {
-    padding: 4px calc(24px * var(--space-x))
-        calc(env(safe-area-inset-bottom) + 12px * var(--space-y));
+    padding: 4px calc(24px * var(--space-x) + var(--inset-r))
+        calc(env(safe-area-inset-bottom) + 12px * var(--space-y))
+        calc(24px * var(--space-x) + var(--inset-l));
     max-width: var(--composer-width);
     width: 100%;
     margin: 0 auto;
@@ -2751,7 +3004,8 @@ pre.diff .del {
 
 @media (max-width: 699px) {
     .composer-wrap {
-        padding-inline: calc(12px * var(--space-x));
+        padding-inline: calc(12px * var(--space-x) + var(--inset-l))
+            calc(12px * var(--space-x) + var(--inset-r));
     }
 }
 
@@ -2880,6 +3134,24 @@ pre.diff .del {
     width: 26px;
     height: 26px;
     color: var(--muted);
+}
+
+/* Tapped open, one's own message: a row of buttons under it to move it to Steer or Queue, or send it now. */
+.queued:has(> .queued-actions) {
+    flex-wrap: wrap;
+}
+
+.queued-actions {
+    flex-basis: 100%;
+    display: flex;
+    gap: 6px;
+    padding-bottom: 8px;
+}
+
+/* Interrupt, tapped once: the color of stopping the run. */
+.queued-actions .button.danger {
+    border-color: var(--err);
+    color: var(--err);
 }
 
 /* A thumb's room around the small mark. */
@@ -3031,6 +3303,8 @@ pre.diff .del {
     max-height: 40vh;
     font-size: 15px;
     line-height: 1.5;
+    /* As tall as what is written, to the most above; browsers without this measure it in script (`fitBox`). */
+    field-sizing: content;
 }
 
 /* Touch screens keep 16px, below which iOS zooms into the field. */
@@ -3148,9 +3422,73 @@ pre.diff .del {
     }
 }
 
-/* Below a 360 px screen (an iPhone SE is 320 px), Steer, Queue, and Interrupt would push Stop out of the box: while Pi
- * works, Attach goes and the three get closer. Attach comes back when Pi stops. A 360 px screen's box is 334 px. */
-@container composer (max-width: 333px) {
+/* The buttons that extensions add to the row: any number of them can come. Where they would push Send (or Stop) out of a
+ * narrow box (two or more up to 480 px, one up to 340 px), they take a line of their own under the row, where they stay
+ * while Pi works. The break is the row's `::after`: a line of no height, so only the buttons' margin parts the lines. A
+ * wrapping row breaks before an item that is too wide, not after shrinking one: the model asks for no room, so Send
+ * stays on the first line, then takes what is left, up to its whole name. */
+@container composer (max-width: 480px) {
+    .composer-row:has(.ext-composer-button ~ .ext-composer-button) {
+        flex-wrap: wrap;
+        row-gap: 0;
+    }
+
+    .composer-row:has(.ext-composer-button ~ .ext-composer-button) .model-chip {
+        flex: 100 1 0;
+        max-width: max-content;
+    }
+
+    .composer-row:has(.ext-composer-button ~ .ext-composer-button)::after {
+        content: "";
+        order: 1;
+        flex-basis: 100%;
+        height: 0;
+    }
+
+    .composer-row:has(.ext-composer-button ~ .ext-composer-button) .ext-composer-button {
+        order: 2;
+        margin-top: 4px;
+    }
+}
+
+@container composer (max-width: 340px) {
+    .composer-row:has(.ext-composer-button) {
+        flex-wrap: wrap;
+        row-gap: 0;
+    }
+
+    .composer-row:has(.ext-composer-button) .model-chip {
+        flex: 100 1 0;
+        max-width: max-content;
+    }
+
+    .composer-row:has(.ext-composer-button)::after {
+        content: "";
+        order: 1;
+        flex-basis: 100%;
+        height: 0;
+    }
+
+    .composer-row:has(.ext-composer-button) .ext-composer-button {
+        order: 2;
+        margin-top: 4px;
+    }
+}
+
+/* One button, on its line in the row: while Pi works it steps aside on a narrow box, so Steer, Queue, Interrupt, and
+ * Stop stay inside it. It shows again after. */
+@container composer (340px < width <= 480px) {
+    .composer.busy
+        .composer-row:not(:has(.ext-composer-button ~ .ext-composer-button))
+        .ext-composer-button {
+        display: none;
+    }
+}
+
+/* On a screen up to 360 px wide (an iPhone SE is 320 px; a 360 px screen's box is 334 px, and the row needs 335), Steer,
+ * Queue, and Interrupt would push Stop out of the box: while Pi works, Attach goes and the three get closer. Attach
+ * comes back when Pi stops. */
+@container composer (max-width: 340px) {
     .composer.busy .composer-row .attach-button {
         display: none;
     }
@@ -3158,6 +3496,27 @@ pre.diff .del {
     .composer.busy .mode-switch button {
         padding-inline: 6px;
     }
+}
+
+/* Whatever else takes room in the row, Stop, Send, and the mic keep theirs, and the three modes give way: their labels
+ * are cut before Stop leaves the box. Cut sideways only: a touch screen's taller tap layer (`::before`, below) reaches
+ * above and below each mode, and a clip there would take it away. */
+.composer.busy .composer-row :is(.stop-button, .send-button, .composer-mic) {
+    flex: none;
+}
+
+.composer.busy .mode-switch {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow-x: clip;
+}
+
+.composer.busy .mode-switch button {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow-x: clip;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
 .chip {
@@ -3379,7 +3738,7 @@ pre.diff .del {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    :root:not([data-motion="full"]) .mic-button.listening::after {
+    :root:not([data-motion="full"], [data-motion="fluid"]) .mic-button.listening::after {
         display: none;
     }
 }
@@ -3680,10 +4039,71 @@ pre.diff .del {
     min-height: 0;
     padding: calc(env(safe-area-inset-top) + 12px) 0 calc(env(safe-area-inset-bottom) + 12px);
     border-right: 1px solid var(--hair);
-    /* A short screen (a phone on its side) scrolls the rail rather than cut off its last buttons. */
+    /* A rail with more buttons than room (a short screen, many extensions) scrolls as a whole rather than cut off its
+       last buttons; its hidden scrollbar's place is taken by a fade at the edge where more is (below). */
     overflow-x: hidden;
     overflow-y: auto;
+    overscroll-behavior: contain;
     scrollbar-width: none;
+}
+
+.rail::-webkit-scrollbar,
+.rail-items::-webkit-scrollbar {
+    display: none;
+}
+
+/*
+ * A scroller with more than it shows fades at that edge (`data-more`, set by `useScrollMore`): the buttons there melt
+ * away, so the rail says it scrolls though it has no scrollbar. The lines at its edges (the rail's on its right, the
+ * sessions' above and below them) do not fade.
+ */
+:is(.rail, .rail-items)[data-more] {
+    /* Long and steep enough that the button at the edge shows half faded: plainly cut off, still there. At most 30% of
+       a short scroller (the folded sessions on a phone on its side), so a fade at each end leaves its middle clear. */
+    --more-fade: min(64px, 30%);
+    mask-image: var(--more-mask), linear-gradient(#000, #000);
+    mask-size:
+        100% 100%,
+        1px 100%;
+    mask-position:
+        0 0,
+        right 0 top 0;
+    mask-repeat: no-repeat;
+}
+
+.rail-items[data-more] {
+    mask-image: var(--more-mask), linear-gradient(#000, #000), linear-gradient(#000, #000);
+    mask-size:
+        100% 100%,
+        100% 1px,
+        100% 1px;
+    mask-position:
+        0 0,
+        0 0,
+        0 100%;
+}
+
+:is(.rail, .rail-items)[data-more="down"] {
+    --more-mask: linear-gradient(
+        #000 calc(100% - var(--more-fade)),
+        rgb(0 0 0 / 0.25) calc(100% - 20px),
+        transparent
+    );
+}
+
+:is(.rail, .rail-items)[data-more="up"] {
+    --more-mask: linear-gradient(transparent, rgb(0 0 0 / 0.25) 20px, #000 var(--more-fade));
+}
+
+:is(.rail, .rail-items)[data-more="both"] {
+    --more-mask: linear-gradient(
+        transparent,
+        rgb(0 0 0 / 0.25) 20px,
+        #000 var(--more-fade),
+        #000 calc(100% - var(--more-fade)),
+        rgb(0 0 0 / 0.25) calc(100% - 20px),
+        transparent
+    );
 }
 
 .rail-brand,
@@ -3831,7 +4251,12 @@ pre.diff .del {
 .rail-items {
     position: relative;
     flex: 1;
-    min-height: 0;
+    /* The sessions come first: room for all of them (`--tiles`, their count), up to a third of the window. What does not
+       fit beside them, the rail scrolls as a whole, as it does unfolded. */
+    min-height: min(
+        calc(var(--tiles, 2) * 36px + 2 * 6px + 2px),
+        max(2 * 36px + 2 * 6px + 2px, 33vh)
+    );
     width: 100%;
     overflow-y: auto;
     overflow-x: hidden;
@@ -3843,10 +4268,6 @@ pre.diff .del {
     border-top: 1px solid var(--hair);
     border-bottom: 1px solid var(--hair);
     scrollbar-width: none;
-}
-
-.rail:has(.rail-items) {
-    overflow-y: hidden;
 }
 
 /* The open session's tile is lit by a soft fill that slides from tile to tile, under the numbers. */
@@ -4329,6 +4750,11 @@ pre.diff .del {
 .session-row {
     position: relative;
     padding-inline-start: calc(var(--linked-depth, 0) * 14px);
+}
+
+/* A row new to this page rises in, the rows in turn. Back to the list builds it again: those rows show as they were,
+ * and the list slides in whole (`data-route`), so it does not flicker (`sessions.js`). */
+.session-row.arriving {
     animation: rise-in 0.38s var(--ease-out) backwards;
     animation-delay: calc(min(var(--i, 0), 14) * 18ms);
 }
@@ -4375,6 +4801,74 @@ pre.diff .del {
 /* The last child: only the corner, no line on down. */
 .session-branches > .elbow:not(.continues)::before {
     display: none;
+}
+
+/*
+ * A row with linked sessions under it: a button on its right shows how many and folds them away (`sessions.js`). The
+ * row's own button keeps its right side clear of it, and the hover actions move in beside it.
+ */
+.session-fold {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 44px;
+    padding: 0 6px;
+    font: 11px var(--mono);
+    color: var(--muted);
+}
+
+/* The control itself: how many, and a chevron, in a quiet pill; the whole 44px beside it takes the tap. */
+.session-fold-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 20px;
+    padding: 0 6px;
+    border: 1px solid var(--hair);
+    border-radius: var(--r-pill);
+    background: var(--card-2);
+    transition:
+        color var(--t-hover) var(--ease-out),
+        border-color var(--t-hover) var(--ease-out);
+}
+
+/* Above the open session: its group stays open, so the fold waits. */
+.session-fold:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+@media (hover: hover) {
+    .session-fold:not(:disabled):hover .session-fold-pill {
+        color: var(--text);
+        border-color: var(--accent-line);
+    }
+}
+
+.session-fold .icon {
+    transition: transform var(--t-in) var(--ease-out);
+}
+
+.session-fold.folded .icon {
+    transform: rotate(-90deg);
+}
+
+.session-row.with-fold .session {
+    padding-right: 64px;
+}
+
+.session-row.with-fold .session-actions {
+    right: 62px;
+}
+
+/* Chips take a line under the title: the fold stays beside the title's line. */
+.session-row.with-chips .session-fold {
+    bottom: 20px;
 }
 
 /* One line: the folder's color, the title, and what goes on there on the right. */
@@ -4438,7 +4932,7 @@ pre.diff .del {
 /*
  * A session's square: its folder's color (--folder), 8px with softly rounded corners, in the shape of its state. Solid:
  * finished, not read yet. Hollow and dim: read, or never run. Quadrants with one lit: working. Two bars: waiting for
- * you. A cross: failed, cut out of a solid square while not read, drawn once read.
+ * you. A hollow square with a dot: waiting for a provider's limit to clear. A cross: failed, cut out of a solid square while not read, drawn once read.
  */
 .state-mark {
     --line-w: 1.5px;
@@ -4501,6 +4995,12 @@ pre.diff .del {
 
 .state-mark.waiting {
     background: linear-gradient(90deg, currentColor 0 3px, transparent 0 5px, currentColor 0);
+}
+
+/* Pi waits for the provider's limit to clear: a hollow square, not dimmed, with a dot at its center. */
+.state-mark.limited {
+    box-shadow: inset 0 0 0 var(--line-w) currentColor;
+    background: radial-gradient(circle at center, currentColor 0 1.25px, transparent 1.5px);
 }
 
 .state-mark.failed {
@@ -4789,6 +5289,10 @@ pre.diff .del {
     .session-row.three-acts:hover .session-side {
         min-width: 86px;
     }
+    /* And an extension's action (`pocket.sessionAction` with an icon). */
+    .session-row.four-acts:hover .session-side {
+        min-width: 116px;
+    }
     /* Keyboard focus in the row shows them too, not the focus a click leaves on the open session's row. Kept apart
        from the rules above: a browser without :has() drops only these. */
     .session-row:has(:focus-visible) .session-act {
@@ -4805,6 +5309,9 @@ pre.diff .del {
     .session-row.three-acts:has(:focus-visible) .session-side {
         min-width: 86px;
     }
+    .session-row.four-acts:has(:focus-visible) .session-side {
+        min-width: 116px;
+    }
     /* While Ctrl/⌘ drags a selection, rows do not show their buttons. */
     :root.selecting .session-row .session-act {
         opacity: 0;
@@ -4812,6 +5319,127 @@ pre.diff .del {
     :root.selecting .session-row .session-side {
         opacity: 1;
         min-width: 0;
+    }
+}
+
+/*
+ * Extensions' chips under a row's title (`pocket.sessionChips`), such as tags. The row's button grows to hold them, so
+ * its fill and its click take the whole row; only the chips that do something take clicks of their own.
+ */
+.session-row.with-chips .session {
+    height: calc(24px + 12px * var(--space-y) + 20px);
+    padding-bottom: 20px;
+}
+
+.session-row.with-chips .session-actions {
+    top: calc(12px + 6px * var(--space-y));
+}
+
+.session-chips {
+    position: absolute;
+    left: calc(var(--linked-depth, 0) * 14px + 30px);
+    right: 10px;
+    bottom: calc(4px + 2px * var(--space-y));
+    display: flex;
+    gap: 4px;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.session-chip {
+    flex: none;
+    max-width: 100%;
+    height: 17px;
+    padding: 0 6px;
+    overflow: hidden;
+    border: 1px solid var(--hair);
+    border-radius: var(--r-tag);
+    background: var(--card-2);
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 15px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+button.session-chip {
+    pointer-events: auto;
+    cursor: pointer;
+    transition:
+        color var(--t-hover) var(--ease-out),
+        border-color var(--t-hover) var(--ease-out);
+}
+
+@media (hover: hover) {
+    button.session-chip:hover {
+        color: var(--accent);
+        border-color: var(--accent-line);
+    }
+}
+
+/* A taller target for a finger, past the chip's own edges. */
+@media (pointer: coarse) {
+    button.session-chip {
+        position: relative;
+    }
+    button.session-chip::before {
+        content: "";
+        position: absolute;
+        inset: -6px -2px;
+    }
+}
+
+/* While taps select rows (after Select), a tap on a chip selects its row too. */
+.sessions.tap-selecting button.session-chip {
+    pointer-events: none;
+}
+
+/* A linked row's branch turns into its title's line, not the middle of the taller row. */
+.session-row.with-chips .session-branches > .elbow::after {
+    bottom: auto;
+    height: calc(13px + 6px * var(--space-y));
+}
+
+/* Extensions' filters beside the search (`pocket.sessionFilter`): lit while one narrows the list. */
+.search-filter {
+    position: relative;
+    flex: none;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--r-seg);
+    color: var(--muted);
+    transition:
+        background-color var(--t-hover) var(--ease-out),
+        color var(--t-hover) var(--ease-out);
+}
+
+@media (hover: hover) {
+    .search-filter:hover {
+        background: var(--hover);
+        color: var(--text);
+    }
+}
+
+.search-filter.on {
+    color: var(--accent);
+}
+
+.search-filter.badge-host .badge {
+    top: -6px;
+    right: -7px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    font-size: 0.6rem;
+}
+
+@media (pointer: coarse) {
+    .search-filter::before {
+        content: "";
+        position: absolute;
+        inset: -9px -4px;
     }
 }
 
@@ -4840,6 +5468,7 @@ pre.diff .del {
     flex: none;
     margin-top: 6px;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 5px;
     min-width: 0;
@@ -5212,7 +5841,17 @@ pre.diff .del {
 @media (min-width: 700px) {
     .overlay {
         align-items: flex-start;
-        padding: 7vh 16px 16px;
+        /* A sheet keeps 16px from the sides, and clear of a notch. */
+        padding: 7vh max(16px, var(--inset-r)) 16px max(16px, var(--inset-l));
+    }
+    /* The drawer keeps its place, and its rail clears the notch itself (below). It fills the room inside the margins,
+       not the whole screen's height, which would put its foot below the screen (a phone on its side). */
+    .overlay.drawer-overlay {
+        padding-left: 16px;
+    }
+    .overlay.drawer-overlay .drawer {
+        height: auto;
+        border-radius: var(--r-sheet);
     }
     .sheet {
         max-width: 500px;
@@ -5245,6 +5884,20 @@ pre.diff .del {
         20px 0 40px -20px var(--sh);
     overflow: hidden;
     animation: drawer-in var(--t-in) var(--ease-out);
+}
+
+/* The drawer's rail keeps its buttons clear of the notch, as the home list's does; its line stays at their edge. */
+.drawer > .rail {
+    width: calc(56px + var(--inset-l));
+    padding-left: var(--inset-l);
+}
+
+/* Wide enough for `.overlay`'s 16px margin, the drawer starts that far in: the notch is that much nearer. */
+@media (min-width: 700px) {
+    .drawer > .rail {
+        width: calc(56px + max(0px, var(--inset-l) - 16px));
+        padding-left: max(0px, calc(var(--inset-l) - 16px));
+    }
 }
 
 @keyframes drawer-in {
@@ -6559,8 +7212,8 @@ pre.diff .del {
 }
 
 /*
- * Wide screens, the owner's view: the providers to sign in to on the left, and what is shared on the right (the refresh,
- * and the models for subagents). A fixed height, and each side scrolls on its own. Narrower: one column, as on a phone.
+ * Wide screens: provider controls on the left, a full-height model library on the right.
+ * Each side scrolls on its own. Narrower: the model library comes first, as on a phone.
  */
 @media (min-width: 700px) {
     .sheet.providers-sheet.with-side {
@@ -6570,8 +7223,8 @@ pre.diff .del {
 
 @media (min-width: 1000px) {
     .sheet.providers-sheet.with-side {
-        max-width: 1160px;
-        height: min(86dvh, 880px);
+        max-width: 1280px;
+        height: min(90dvh, 960px);
     }
     .providers-sheet.with-side .sheet-body {
         overflow-y: hidden;
@@ -6580,7 +7233,7 @@ pre.diff .del {
         flex: 1;
         min-height: 0;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(340px, 400px);
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         gap: 24px;
     }
     .providers-sheet .providers-main {
@@ -6603,26 +7256,16 @@ pre.diff .del {
         overflow-y: auto;
         overscroll-behavior: contain;
     }
-    .providers-side .model-refresh {
-        margin-top: 0;
-    }
     .providers-side .subagent-models {
         flex: 1 1 0;
-        min-height: 18rem;
+        min-height: 0;
         margin: 0;
-        padding: 12px 0 0;
-        border-bottom: 0;
-        border-top: 1px solid var(--line);
-    }
-    .providers-side .subagent-models > .label {
-        margin: 0;
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--text);
+        padding: 0;
+        border: 0;
     }
     .providers-side .subagent-models-list {
-        flex: 1;
-        min-height: 8rem;
+        flex: 1 1 0;
+        min-height: 12rem;
         max-height: none;
         background: var(--bg);
     }
@@ -6670,8 +7313,8 @@ pre.diff .del {
     margin: 0.35rem 0 0;
 }
 
-/* The owner's choice of models for subagents, above the providers. */
-.subagent-models {
+/* The owner's choice of how long a run waits for a provider's limit to clear. */
+.limit-wait {
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
@@ -6680,15 +7323,66 @@ pre.diff .del {
     border-bottom: 1px solid var(--line);
 }
 
+.limit-wait p {
+    margin: 0;
+}
+
+.limit-wait .segmented {
+    flex-wrap: wrap;
+}
+
+/* The owner's choice of models for subagents, above the providers. */
+.subagent-models {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 0.6rem 0 0.8rem;
+    margin-bottom: 0.4rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.subagent-models-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.subagent-models-heading .label {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+}
+
 .subagent-models p {
     margin: 0;
 }
 
-/* What is allowed, on one line: the list under it stays put while models are checked one after another. */
+/* The count stays compact even with many models allowed. */
 .subagent-models-chosen {
+    padding: 3px 8px;
+    border: 1px solid var(--hair);
+    border-radius: var(--r-card);
+    color: var(--muted);
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+}
+
+.model-filters {
+    align-self: flex-start;
+}
+
+.model-menu > .model-filters {
+    margin: 0 10px 8px;
+}
+
+.model-filters button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 40px;
 }
 
 .subagent-models .search {
@@ -6722,16 +7416,50 @@ pre.diff .del {
 .subagent-model {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
-    min-height: 44px;
-    padding: 8px 12px;
+    min-height: 60px;
+    padding-right: 6px;
     border-top: 1px solid var(--hair);
+}
+
+.subagent-model-choice {
+    display: flex;
+    align-items: center;
+    align-self: stretch;
+    flex: 1;
+    min-width: 0;
+    gap: 12px;
+    padding: 10px 12px;
     cursor: pointer;
 }
 
-.subagent-model > span {
+.subagent-model-choice > span {
     min-width: 0;
     overflow-wrap: anywhere;
+}
+
+.subagent-model:has(input:checked) {
+    background: var(--accent-soft);
+}
+
+.model-favorite {
+    flex: none;
+    min-width: 44px;
+    min-height: 44px;
+    color: var(--faint);
+}
+
+.model-favorite[aria-pressed="true"] {
+    color: var(--accent);
+}
+
+.model-favorite[aria-pressed="true"] svg {
+    fill: currentColor;
+}
+
+@media (hover: hover) {
+    .subagent-model:hover {
+        background: var(--hover);
+    }
 }
 
 .subagent-model .muted {
@@ -6867,6 +7595,7 @@ pre.diff .del {
     position: fixed;
     inset: 0;
     z-index: 30;
+    padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
     background: var(--bg);
     display: flex;
     flex-direction: column;
@@ -7103,8 +7832,8 @@ pre.diff .del {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: calc(env(safe-area-inset-top) + 3.2rem) 0.5rem
-        calc(env(safe-area-inset-bottom) + 0.5rem);
+    padding: calc(env(safe-area-inset-top) + 3.2rem) calc(0.5rem + env(safe-area-inset-right))
+        calc(env(safe-area-inset-bottom) + 0.5rem) calc(0.5rem + env(safe-area-inset-left));
     animation: fade var(--t-fade) var(--ease-almost);
     cursor: zoom-out;
 }
@@ -7129,7 +7858,8 @@ pre.diff .del {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    padding: calc(env(safe-area-inset-top) + 0.4rem) 0.4rem 0.4rem 0.9rem;
+    padding: calc(env(safe-area-inset-top) + 0.4rem) calc(0.4rem + env(safe-area-inset-right))
+        0.4rem calc(0.9rem + env(safe-area-inset-left));
     background: linear-gradient(color-mix(in srgb, var(--desk) 80%, transparent), transparent);
     cursor: default;
 }
@@ -8753,6 +9483,34 @@ textarea.notes {
     }
 }
 
+/* Phones: a sheet from the bottom edge, as the app's other sheets are, with a grip to drag it back down. Its height
+   stays put as results come and go, so its top edge does not jump while typing. */
+@media (max-width: 699px) {
+    .launcher-overlay {
+        align-items: flex-end;
+        padding: calc(env(safe-area-inset-top) + 24px) env(safe-area-inset-right) 0
+            env(safe-area-inset-left);
+    }
+    .launcher {
+        position: relative;
+        width: 100%;
+        height: 86dvh;
+        max-height: none;
+        padding-bottom: env(safe-area-inset-bottom);
+        border-radius: calc(var(--r-sheet) + 8px) calc(var(--r-sheet) + 8px) 0 0;
+        box-shadow:
+            0 -1px 0 var(--hair-2),
+            0 -20px 40px -20px var(--sh);
+        animation: sheet-up var(--t-in) var(--ease-out);
+    }
+    .leaving .launcher {
+        animation: sheet-down var(--t-out) var(--ease-in-out) forwards;
+    }
+    .launcher-input {
+        padding-top: 20px;
+    }
+}
+
 /* ─── Appearance ───────────────────────────────────────────── */
 
 .theme-grid {
@@ -9065,6 +9823,112 @@ textarea.notes {
 .look-duplicate input {
     flex: 1;
     min-width: 160px;
+}
+
+/* The owner's fonts for the theme in use: a menu each for words and code, ligatures, and a preview in them. */
+.font-tools {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px 12px;
+    margin: 10px 0 4px;
+}
+
+.font-menu {
+    display: grid;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.font-menu .switch {
+    justify-self: start;
+}
+
+.font-menu strong {
+    padding: 6px 0;
+    font-weight: 500;
+    color: var(--text);
+    font-size: 14px;
+}
+
+.font-title,
+.font-duplicate {
+    grid-column: 1 / -1;
+}
+
+.font-title {
+    margin: 4px 0 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.font-title em {
+    font-style: normal;
+    color: var(--accent);
+}
+
+.font-duplicate {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.font-duplicate .look-duplicate {
+    flex: 1;
+    margin: 0;
+}
+
+.text-size {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.text-size-field {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.text-size-field input {
+    width: 4.5rem;
+    padding: 0.35rem 0.5rem;
+    text-align: right;
+    font-family: var(--mono);
+}
+
+@media (max-width: 480px) {
+    .setting-row:has(.text-size) {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .setting-row:has(.text-size) .setting-text {
+        flex-basis: 100%;
+    }
+}
+
+.font-preview {
+    grid-column: 1 / -1;
+    padding: 10px 12px;
+    border: 1px solid var(--hair);
+    border-radius: var(--r-control);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.font-preview code {
+    display: block;
+    margin-top: 4px;
+    font-family: var(--mono);
+    white-space: pre;
+    overflow-x: auto;
 }
 
 /* ─── Sign in: the app's screen (the server's pages are under Notices) ─── */
@@ -9981,7 +10845,7 @@ textarea.notes {
     gap: 8px;
     overflow-x: auto;
     overscroll-behavior-x: contain;
-    padding: 8px 12px;
+    padding: 8px calc(12px + var(--inset-r)) 8px calc(12px + var(--inset-l));
     border-bottom: 1px solid var(--hair);
     scroll-snap-type: x proximity;
     scrollbar-width: none;
@@ -10779,6 +11643,7 @@ textarea.notes {
     position: fixed;
     inset: 0;
     z-index: 15;
+    padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
     display: flex;
     flex-direction: column;
     background: var(--bg);
@@ -10807,6 +11672,7 @@ textarea.notes {
         max-width: calc(100% - 440px);
         height: 100dvh;
         border-left: 1px solid var(--hair);
+        padding-inline: 0 var(--inset-r);
         animation-delay: 90ms;
     }
     :root[data-tiling="on"] .layout.filing .files-tile {
@@ -10826,6 +11692,7 @@ textarea.notes {
     position: fixed;
     inset: 0;
     z-index: 15;
+    padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
     display: flex;
     flex-direction: column;
     background: var(--bg);
@@ -10849,6 +11716,7 @@ textarea.notes {
         max-width: calc(100% - 440px);
         height: 100dvh;
         border-left: 1px solid var(--hair);
+        padding-inline: 0 var(--inset-r);
         animation-delay: 90ms;
     }
     .layout.paneling .ext-panel.wide {
@@ -11251,6 +12119,7 @@ textarea.notes {
     position: fixed;
     inset: 0;
     z-index: 15;
+    padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
     display: flex;
     flex-direction: column;
     background: var(--bg);
@@ -11279,6 +12148,7 @@ textarea.notes {
         max-width: calc(100% - 440px);
         height: 100dvh;
         border-left: 1px solid var(--line);
+        padding-inline: 0 var(--inset-r);
         animation-delay: 90ms;
     }
     :root[data-tiling="on"] .layout.browsing .browser {
@@ -12341,7 +13211,7 @@ textarea.notes {
 
 /*
  * Phones: a session opened slides in from the right, and going back brings the list (or the session before) in from
- * the left, so where back goes is where things came from. `data-route` is set while it slides (back.js).
+ * the left, so where back goes is where things came from. `data-route` is set on the window while it slides (back.js).
  */
 @media (max-width: 959px) {
     /* Held inside the window: a scroller sliding in from the right (a route, a swipe's lean) would make the page wider
@@ -12349,11 +13219,11 @@ textarea.notes {
     .pane {
         overflow-x: clip;
     }
-    :root[data-route="forward"] .pane > .scroller {
+    .pane[data-route="forward"] > .scroller {
         animation: route-forward 0.32s var(--ease-out);
     }
-    :root[data-route="back"] .pane > .scroller,
-    :root[data-route="back"] .home-list {
+    .pane[data-route="back"] > .scroller,
+    .pane[data-route="back"] > .home-list {
         animation: route-back 0.32s var(--ease-out);
     }
 }
@@ -13437,35 +14307,24 @@ textarea.notes {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 1rem 1rem calc(env(safe-area-inset-bottom) + 1rem);
+    padding: 1rem calc(1rem + var(--inset-r)) calc(env(safe-area-inset-bottom) + 1rem)
+        calc(1rem + var(--inset-l));
 }
 
 /*
- * Extensions' rail buttons, together: four buttons' height at most, past which they scroll rather than push the app's
- * own buttons away. Beside the session list it keeps that height, and a short window scrolls the whole rail, as it does
- * the app's own buttons; in the folded rail it gives way first (to one button), so the sessions' tiles keep their room.
+ * Extensions' rail buttons, together, after the app's own tools: they take the room they need, and a rail with more
+ * buttons than room scrolls as a whole (above).
  */
 .rail-exts {
     flex: none;
-    max-height: calc(4 * 44px + 3 * 4px);
     width: 100%;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 4px;
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: none;
 }
 
-.rail:has(.rail-items) .rail-exts {
-    flex: 0 1 auto;
-    min-height: 44px;
-    max-height: max(44px, min(4 * 44px + 3 * 4px, 22vh));
-}
-
-/* Inside the button, where the group's edge does not cut it off. */
+/* Inside the button, where the rail's edge does not cut it off. */
 .rail-exts .rail-button:focus-visible {
     outline-offset: -1px;
 }
@@ -13510,7 +14369,7 @@ textarea.notes {
     align-items: center;
     gap: 12px;
     min-height: 62px;
-    padding: env(safe-area-inset-top) 12px 0 22px;
+    padding: env(safe-area-inset-top) calc(12px + var(--inset-r)) 0 calc(22px + var(--inset-l));
     border-bottom: 1px solid var(--hair);
 }
 
@@ -13700,7 +14559,7 @@ textarea.notes {
     min-height: 0;
     display: flex;
     gap: 16px;
-    padding: 16px 22px 22px;
+    padding: 16px calc(22px + var(--inset-r)) 22px calc(22px + var(--inset-l));
 }
 
 .board-main {
@@ -14154,7 +15013,7 @@ textarea.notes {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 12px 12px 16px;
+    padding: 12px calc(12px + var(--inset-r)) 16px calc(12px + var(--inset-l));
 }
 
 /* Room under the last row for the bar over it. */
@@ -14234,8 +15093,8 @@ textarea.notes {
 
 .board-bar {
     position: absolute;
-    left: 8px;
-    right: 8px;
+    left: calc(8px + var(--inset-l));
+    right: calc(8px + var(--inset-r));
     bottom: 8px;
     z-index: 3;
     display: flex;
@@ -14605,6 +15464,30 @@ textarea.notes {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     animation: rise-in var(--t-fade) var(--ease-out);
+}
+
+/* A message of yours that waits while PiP works: dimmed, with what happens to it and a way to take it back. */
+.pip-you.pending {
+    opacity: 0.7;
+    border: 1px dashed var(--accent-line);
+}
+
+.pip-pending-line {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: normal;
+}
+
+.pip-pending-withdraw {
+    min-height: 40px;
+    padding: 0 4px;
+    color: var(--accent);
+    font: inherit;
 }
 
 .pip-reply {
@@ -15710,6 +16593,27 @@ textarea.notes {
     line-height: 1.55;
 }
 
+/* A module's settings (`web.settings`) in its open row: its fields as the app's settings rows. */
+.ext-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
+}
+
+.ext-setting-input,
+.ext-settings select {
+    min-height: 36px;
+    max-width: 220px;
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-control);
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+}
+
 .ext-step-actions {
     display: flex;
     flex-wrap: wrap;
@@ -16121,4 +17025,526 @@ pre.gallery-code {
 
 .gallery-change.changed {
     color: var(--warn);
+}
+
+/* ─── Fluid motion ─────────────────────────────────────────── */
+
+/*
+ * Appearance → Motion → Fluid: the same app, moving more. What floats over the page arrives on a spring and leaves
+ * quickly; what it holds follows a step behind; layout changes morph (theme.js, `morph`); a pressed control springs
+ * back. Only transform and opacity move, apart from a few small things (a notice's blur, the message box's glow), so a
+ * long session costs nothing more. Nothing waits before it can be used: arrivals take pointers from their first frame,
+ * and what leaves finishes inside the time the app keeps it (usePresence, ui.js). Last in the file, so it wins over
+ * the usual motion at the same specificity. Auto never picks it: it is chosen.
+ */
+:root[data-motion="fluid"] {
+    --ease-out: var(--ease-glide);
+}
+
+@supports not (animation-timing-function: linear(0, 1)) {
+    :root {
+        --ease-spring: var(--ease-glide);
+    }
+}
+
+@keyframes fluid-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes fluid-fade-out {
+    to {
+        opacity: 0;
+    }
+}
+
+/* What floats near the middle: up a little, and from 95%. The spring carries the size; the fade is quicker. */
+@keyframes fluid-float-in {
+    from {
+        transform: translateY(10px) scale(0.95);
+    }
+}
+
+@keyframes fluid-float-out {
+    to {
+        opacity: 0;
+        transform: translateY(4px) scale(0.97);
+    }
+}
+
+/* What a sheet, a menu, or a group holds: each part a step after the one before. */
+@keyframes fluid-rise {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+}
+
+@keyframes fluid-drop {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+}
+
+/* The scrim: a soft frost over the app as it dims. Its blur stays still; only its opacity moves, quickly, since what
+ * it holds fades with it. */
+:root[data-motion="fluid"] .overlay:not(.pop-overlay),
+:root[data-motion="fluid"] .launcher-overlay {
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+    animation: fluid-fade var(--t-fade) var(--ease-glide);
+}
+
+:root[data-motion="fluid"] .leaving .overlay:not(.pop-overlay),
+:root[data-motion="fluid"] .leaving.launcher-overlay {
+    animation: fluid-fade-out var(--t-exit) var(--ease-exit) forwards;
+}
+
+/* Phones: a sheet glides up from the bottom edge. A spring would lift it off the edge, so it slows to rest. */
+:root[data-motion="fluid"] .sheet {
+    animation: sheet-up var(--t-glide) var(--ease-glide);
+}
+
+:root[data-motion="fluid"] .leaving .sheet {
+    animation: sheet-down 190ms var(--ease-exit) forwards;
+}
+
+/* What a sheet holds rises behind it, the first eight parts a step apart. */
+:root[data-motion="fluid"] .sheet-body > :nth-child(-n + 8),
+:root[data-motion="fluid"] .nav-menu .places > :nth-child(-n + 9) {
+    animation: fluid-rise var(--t-glide) var(--ease-glide) backwards;
+    animation-delay: calc(50ms + var(--fluid-i, 0) * var(--stagger));
+}
+
+:root[data-motion="fluid"] :is(.sheet-body, .places) > :nth-child(2) {
+    --fluid-i: 1;
+}
+
+:root[data-motion="fluid"] :is(.sheet-body, .places) > :nth-child(3) {
+    --fluid-i: 2;
+}
+
+:root[data-motion="fluid"] :is(.sheet-body, .places) > :nth-child(4) {
+    --fluid-i: 3;
+}
+
+:root[data-motion="fluid"] :is(.sheet-body, .places) > :nth-child(5) {
+    --fluid-i: 4;
+}
+
+:root[data-motion="fluid"] :is(.sheet-body, .places) > :nth-child(6) {
+    --fluid-i: 5;
+}
+
+:root[data-motion="fluid"] :is(.sheet-body, .places) > :nth-child(7) {
+    --fluid-i: 6;
+}
+
+:root[data-motion="fluid"] :is(.sheet-body, .places) > :nth-child(8) {
+    --fluid-i: 7;
+}
+
+:root[data-motion="fluid"] :is(.sheet-body, .places) > :nth-child(9) {
+    --fluid-i: 8;
+}
+
+/* Wide screens: a sheet floats in on the spring, and the menu grows from its corner by the button. */
+@media (min-width: 700px) {
+    :root[data-motion="fluid"] .sheet {
+        animation:
+            fluid-fade var(--t-fade) var(--ease-glide),
+            fluid-float-in var(--t-spring) var(--ease-spring);
+    }
+    :root[data-motion="fluid"] .leaving .sheet {
+        animation: fluid-float-out var(--t-exit) var(--ease-exit) forwards;
+    }
+    :root[data-motion="fluid"] .nav-menu {
+        transform-origin: 85% 0;
+    }
+}
+
+/* The launcher: from just above, as if it dropped into place; its results follow. */
+:root[data-motion="fluid"] .launcher {
+    transform-origin: 50% 0;
+    animation:
+        fluid-fade var(--t-fade) var(--ease-glide),
+        fluid-float-in var(--t-spring) var(--ease-spring);
+}
+
+:root[data-motion="fluid"] .launcher-list {
+    animation: fluid-rise var(--t-glide) var(--ease-glide) 40ms backwards;
+}
+
+:root[data-motion="fluid"] .leaving .launcher {
+    animation: fluid-float-out 140ms var(--ease-exit) forwards;
+}
+
+/* Phones: the launcher is a sheet from the bottom edge, so it glides up as sheets do. */
+@media (max-width: 699px) {
+    :root[data-motion="fluid"] .launcher {
+        animation: sheet-up var(--t-glide) var(--ease-glide);
+    }
+    :root[data-motion="fluid"] .leaving .launcher {
+        animation: sheet-down 140ms var(--ease-exit) forwards;
+    }
+}
+
+/* Menus up from a control (the model, the branch): from the control's side. */
+:root[data-motion="fluid"] .pop-menu {
+    transform-origin: 30% 100%;
+    animation:
+        fluid-fade var(--t-fade) var(--ease-glide),
+        fluid-float-in var(--t-spring) var(--ease-spring);
+}
+
+:root[data-motion="fluid"] .pop-menu.down {
+    transform-origin: 30% 0;
+    animation:
+        fluid-fade var(--t-fade) var(--ease-glide),
+        pop-menu-down var(--t-spring) var(--ease-spring);
+}
+
+:root[data-motion="fluid"] .leaving .pop-menu,
+:root[data-motion="fluid"] .leaving .pop-menu.down {
+    animation: fluid-float-out var(--t-exit) var(--ease-exit) forwards;
+}
+
+/* The drawer glides in; the list in it follows a little behind, as if pulled. */
+:root[data-motion="fluid"] .drawer {
+    animation: drawer-in var(--t-glide) var(--ease-glide);
+}
+
+:root[data-motion="fluid"] .drawer .session-items {
+    animation: fluid-drawer-items var(--t-spring) var(--ease-glide) backwards;
+}
+
+@keyframes fluid-drawer-items {
+    from {
+        opacity: 0;
+        transform: translateX(-28px);
+    }
+}
+
+:root[data-motion="fluid"] .leaving .drawer {
+    animation: drawer-out 190ms var(--ease-exit) forwards;
+}
+
+/* Notices: down from the top edge, out of a soft blur, and back up into it. */
+:root[data-motion="fluid"] .notice {
+    animation:
+        fluid-fade var(--t-fade) var(--ease-glide),
+        fluid-toast-in var(--t-spring) var(--ease-spring);
+}
+
+:root[data-motion="fluid"] .notice.leaving {
+    animation: fluid-toast-out var(--t-exit) var(--ease-exit) forwards;
+}
+
+@keyframes fluid-toast-in {
+    from {
+        translate: 0 -14px;
+        scale: 0.94;
+        filter: blur(4px);
+    }
+    60% {
+        filter: blur(0);
+    }
+}
+
+@keyframes fluid-toast-out {
+    to {
+        opacity: 0;
+        translate: 0 -10px;
+        scale: 0.96;
+        filter: blur(3px);
+    }
+}
+
+/* A session opened: its conversation settles up into place. */
+:root[data-motion="fluid"] .transcript.rising {
+    animation: fluid-rise var(--t-glide) var(--ease-glide);
+}
+
+/* A message sent lifts off from the message box below it, on the spring. */
+:root[data-motion="fluid"] .user-row.enter {
+    transform-origin: 100% 100%;
+    animation:
+        fluid-fade var(--t-fade) var(--ease-glide),
+        fluid-sent var(--t-spring) var(--ease-spring) backwards;
+}
+
+@keyframes fluid-sent {
+    from {
+        transform: translateY(28px) scale(0.96);
+    }
+}
+
+/* Pi's answer, what it did, and reports: quieter, a short rise. */
+:root[data-motion="fluid"] :is(.reply, .activity, .report).enter {
+    animation: fluid-rise var(--t-glide) var(--ease-glide) backwards;
+}
+
+/* While Pi answers, each new paragraph, list, or code block fades in; what is already there never moves. */
+:root[data-motion="fluid"] .md.streaming > .md-part {
+    animation: fluid-fade 320ms var(--ease-glide);
+}
+
+/* The caret breathes instead of blinking. */
+:root[data-motion="fluid"] .md.streaming > :last-child:not(.md-part)::after,
+:root[data-motion="fluid"] .md.streaming > .md-part:last-child > :last-child::after {
+    animation: fluid-caret 1.1s var(--ease-in-out) infinite alternate;
+}
+
+@keyframes fluid-caret {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0.2;
+    }
+}
+
+/* A group of steps opening: it unrolls on the glide, and its first steps drop in one after another. */
+:root[data-motion="fluid"] :is(.timeline, .activity-thought, .step-body).unrolling {
+    animation: unroll var(--t-glide) var(--ease-glide);
+}
+
+:root[data-motion="fluid"] .timeline.unrolling > :nth-child(-n + 10) {
+    animation: fluid-drop var(--t-glide) var(--ease-glide) backwards;
+    animation-delay: calc(30ms + var(--fluid-i, 0) * var(--stagger));
+}
+
+:root[data-motion="fluid"] .timeline.unrolling > :nth-child(2) {
+    --fluid-i: 1;
+}
+
+:root[data-motion="fluid"] .timeline.unrolling > :nth-child(3) {
+    --fluid-i: 2;
+}
+
+:root[data-motion="fluid"] .timeline.unrolling > :nth-child(4) {
+    --fluid-i: 3;
+}
+
+:root[data-motion="fluid"] .timeline.unrolling > :nth-child(5) {
+    --fluid-i: 4;
+}
+
+:root[data-motion="fluid"] .timeline.unrolling > :nth-child(6) {
+    --fluid-i: 5;
+}
+
+:root[data-motion="fluid"] .timeline.unrolling > :nth-child(7) {
+    --fluid-i: 6;
+}
+
+:root[data-motion="fluid"] .timeline.unrolling > :nth-child(8) {
+    --fluid-i: 7;
+}
+
+:root[data-motion="fluid"] .timeline.unrolling > :nth-child(9) {
+    --fluid-i: 8;
+}
+
+:root[data-motion="fluid"] .timeline.unrolling > :nth-child(10) {
+    --fluid-i: 9;
+}
+
+/* Chevrons and the sliding tabs' thumb turn and slide on the spring. */
+:root[data-motion="fluid"] :is(.chev, .agents-chevron) {
+    transition: transform var(--t-spring) var(--ease-spring);
+}
+
+:root[data-motion="fluid"] .slide-x {
+    transition:
+        transform var(--t-spring) var(--ease-spring),
+        width var(--t-glide) var(--ease-glide);
+}
+
+/* Pressed, a control sinks at once; let go, it springs back. */
+:root[data-motion="fluid"] :is(.button, .icon-button) {
+    transition:
+        background-color var(--t-hover) var(--ease-out),
+        border-color var(--t-hover) var(--ease-out),
+        color var(--t-hover) var(--ease-out),
+        transform var(--t-spring) var(--ease-spring);
+}
+
+:root[data-motion="fluid"] :is(.stop-button, .send-button) {
+    transition:
+        background-color var(--t-hover) var(--ease-out),
+        color var(--t-hover) var(--ease-out),
+        transform var(--t-spring) var(--ease-spring);
+}
+
+:root[data-motion="fluid"] :is(.button, .icon-button):active {
+    transition-duration: var(--t-hover), var(--t-hover), var(--t-hover), 70ms;
+}
+
+:root[data-motion="fluid"] :is(.stop-button, .send-button):active {
+    transition-duration: var(--t-hover), var(--t-hover), 70ms;
+}
+
+/* Send lights up: its arrow pops in on the spring. */
+:root[data-motion="fluid"] .send-button.ready .icon {
+    animation: fluid-arrow var(--t-spring) var(--ease-spring);
+}
+
+@keyframes fluid-arrow {
+    from {
+        transform: translateY(5px) scale(0.6);
+        opacity: 0.4;
+    }
+}
+
+/* The message box: a soft ring of the accent grows around it while it has the focus. */
+:root[data-motion="fluid"] .composer {
+    transition:
+        border-color var(--t-border) var(--ease-glide),
+        box-shadow var(--t-border) var(--ease-glide);
+}
+
+:root[data-motion="fluid"] .composer:focus-within {
+    box-shadow:
+        var(--shadow),
+        0 0 0 4px color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+/* Panels beside the conversation, and screens pushed over it on phones: in on the spring or the glide. */
+:root[data-motion="fluid"] .layout > .people.window {
+    animation:
+        fluid-fade var(--t-fade) var(--ease-glide),
+        people-in var(--t-spring) var(--ease-spring) backwards;
+}
+
+:root[data-motion="fluid"] .layout > .people.window.leaving {
+    animation: people-out var(--t-exit) var(--ease-exit) forwards;
+}
+
+@media (max-width: 959px) {
+    :root[data-motion="fluid"] .pane[data-route="forward"] > .scroller {
+        animation: route-forward var(--t-glide) var(--ease-glide);
+    }
+    :root[data-motion="fluid"] .pane[data-route="back"] > .scroller,
+    :root[data-motion="fluid"] .pane[data-route="back"] > .home-list {
+        animation: route-back var(--t-glide) var(--ease-glide);
+    }
+}
+
+@media (max-width: 1099px) {
+    :root[data-motion="fluid"] .layout > :is(.files-tile, .browser, .ext-panel).window {
+        animation: push-in var(--t-glide) var(--ease-glide);
+    }
+    :root[data-motion="fluid"] .layout > :is(.files-tile, .browser, .ext-panel).window.leaving {
+        animation: push-out 220ms var(--ease-exit) forwards;
+    }
+}
+
+/*
+ * Layout changes morph (theme.js, `morph`): folding the sidebar, Width, and tiling. The windows slide and resize as
+ * one; what they hold keeps its size, held to its window's top left (the sidebar) or top middle (the conversation), so
+ * no text stretches, and fades through: the old out quickly, then the new in. Notices keep their place above.
+ */
+:root.layout-vt .layout > .sidebar {
+    transition: none;
+    view-transition-name: fluid-sidebar;
+}
+
+:root.layout-vt .layout > .pane {
+    view-transition-name: fluid-pane;
+}
+
+:root.layout-vt .notices {
+    view-transition-name: fluid-notices;
+}
+
+:root.layout-vt::view-transition-group(*) {
+    animation-duration: var(--t-glide);
+    animation-timing-function: var(--ease-glide);
+}
+
+/* Each window keeps its ground while what it holds fades through. */
+:root.layout-vt::view-transition-group(fluid-sidebar) {
+    overflow: clip;
+    background: var(--panel);
+}
+
+:root.layout-vt::view-transition-group(fluid-pane) {
+    overflow: clip;
+    background: var(--bg);
+}
+
+:root.layout-vt[data-tiling="on"]::view-transition-group(fluid-sidebar),
+:root.layout-vt[data-tiling="on"]::view-transition-group(fluid-pane) {
+    border-radius: var(--r-window);
+}
+
+:root.layout-vt::view-transition-old(fluid-sidebar),
+:root.layout-vt::view-transition-new(fluid-sidebar) {
+    height: 100%;
+    object-fit: none;
+    object-position: 0 0;
+}
+
+:root.layout-vt::view-transition-old(fluid-pane),
+:root.layout-vt::view-transition-new(fluid-pane) {
+    height: 100%;
+    object-fit: none;
+    object-position: 50% 0;
+}
+
+:root.layout-vt::view-transition-old(*),
+:root.layout-vt::view-transition-new(*) {
+    animation-duration: var(--t-fade);
+    animation-timing-function: var(--ease-glide);
+}
+
+:root.layout-vt::view-transition-old(fluid-sidebar),
+:root.layout-vt::view-transition-old(fluid-pane) {
+    animation: fluid-fade-out 110ms var(--ease-exit) both;
+}
+
+:root.layout-vt::view-transition-new(fluid-sidebar),
+:root.layout-vt::view-transition-new(fluid-pane) {
+    animation: fluid-fade var(--t-glide) var(--ease-glide) 80ms both;
+}
+
+/* A page Pi showed in its reply: the card is a code block (`.code.rich`) between the words around it. */
+.inline-row {
+    min-width: 0;
+}
+
+.inline-row > .code {
+    margin: 0;
+}
+
+/* The artifact's name as it was written, with its version; its buttons never break over two lines. */
+.inline-artifact .code-lang {
+    text-transform: none;
+}
+
+.inline-artifact .rich-run,
+.inline-artifact .rich-tabs button,
+.inline-artifact .code-head .copy {
+    white-space: nowrap;
+}
+
+/* On a phone the bar has two lines: the name, then the buttons. */
+@media (max-width: 699px) {
+    .inline-artifact .code-head {
+        flex-wrap: wrap;
+        height: auto;
+        row-gap: 2px;
+        padding-block: 4px;
+    }
+
+    .inline-artifact .code-lang {
+        flex: 1 0 100%;
+    }
+
+    .inline-artifact .rich-tabs {
+        margin-left: 0;
+    }
 }

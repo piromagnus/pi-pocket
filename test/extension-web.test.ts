@@ -39,6 +39,7 @@ import { ExtensionWebs } from "../src/server/extension-web.ts";
 import { PlanDoc, TurnsDoc } from "../src/server/docs.ts";
 import { createHandler } from "../src/server/http.ts";
 import { opened } from "../src/server/http/io.ts";
+import { BUILT_IN_MODULES } from "../src/server/reload.ts";
 
 const dataDir = join(root, "data");
 const dropIns = join(dataDir, "extensions");
@@ -55,6 +56,7 @@ const Catalog = defineDoc({
     kind: "x.workspace.catalog",
     version: 1,
     scope: "session",
+    checkpointWhen: () => false,
     initial: () => ({ saved: 0 }),
 });
 
@@ -105,7 +107,7 @@ before(async () => {
         join(dropIns, "workspace.ts"),
         `/** Workspace: request-bound test routes. */
 import { defineDoc } from "@earendil-works/pi-durable";
-const Catalog = defineDoc({ kind: "x.workspace.catalog", version: 1, scope: "session", initial: () => ({ saved: 0 }) });
+const Catalog = defineDoc({ kind: "x.workspace.catalog", version: 1, scope: "session", checkpointWhen: () => false, initial: () => ({ saved: 0 }) });
 export default function(host, web) {
     globalThis.workspaceHost = host;
     web.route("GET", "catalog", async req => {
@@ -259,8 +261,11 @@ test("a browser module loads for the people it is for, and its folder serves onl
     const soloUrl = ownerUi.find((each) => each.module === "solo")!.url;
 
     // Panel's is for everyone with every session; Solo's for the owner alone.
+    // Built-in modules with browser modules of their own may be on by default: only the drop-ins count.
     assert.deepEqual(
-        (await uiFor("Vic")).map((each) => each.module),
+        (await uiFor("Vic"))
+            .map((each) => each.module)
+            .filter((module) => !BUILT_IN_MODULES.has(module)),
         ["panel"],
     );
     assert.deepEqual(await uiFor("Sid"), []);
@@ -632,6 +637,7 @@ test("bound routes use the clicking actor, keep receipts private, and expose aut
     );
     assert.equal(seen.workspaceHost!.pocketVersion, pocketVersion());
     assert.deepEqual(seen.workspaceHost!.modelInfo("faux/faux-1")?.thinkingLevels, ["off"]);
+    assert.equal(typeof seen.workspaceHost!.modelInfo("faux/faux-1")?.contextWindow, "number");
     assert.equal(seen.workspaceHost!.modelInfo("faux-1"), undefined);
     assert.equal(
         ((await call("owner", "/api/me")).data as { server: { pocketVersion: string } }).server
@@ -758,6 +764,8 @@ test("a policy change queued between final authorization and admission cancels o
 test("a reconfigured target cannot substitute another allowed model for the approved start", async (t) => {
     const source = await newSession(app);
 
+    // The source's model is listed, so a start keeps it; the other listed model is the one not approved.
+    await app.allowSubagentModel(owner(app), "faux/faux-1", true);
     await app.allowSubagentModel(owner(app), "faux/faux-2", true);
     let target!: ConversationId;
     const submit = app.commands.submit.bind(app.commands);
@@ -781,7 +789,44 @@ test("a reconfigured target cannot substitute another allowed model for the appr
 
     assert.equal(answer.status, 409);
     assert.deepEqual(await modelTexts(app, target), []);
+    await app.allowSubagentModel(owner(app), "faux/faux-1", false);
     await app.allowSubagentModel(owner(app), "faux/faux-2", false);
+});
+
+test("a human start with a list needs a model when the source's is not listed, and takes a listed one", async () => {
+    const source = await newSession(app);
+
+    await app.allowSubagentModel(owner(app), "faux/faux-2", true);
+
+    try {
+        const answer = await call("owner", `/api/x/workspace/start/${source}`, {
+            method: "POST",
+            body: { message: "default model", key: "default-listed" },
+        });
+
+        assert.equal(answer.status, 400);
+        assert.match(JSON.stringify(answer.data), /A model is required[^]*faux\/faux-2/);
+
+        const chosen = await call("owner", `/api/x/workspace/start/${source}`, {
+            method: "POST",
+            body: { message: "chosen model", key: "chosen-listed", model: "faux/faux-2" },
+        });
+
+        assert.equal(chosen.status, 200);
+        const target = (chosen.data as { session: ConversationId }).session;
+
+        assert.equal((await app.agentState(target))?.model?.modelId, "faux-2");
+
+        // Naming the source's own model, which is not listed, is refused.
+        const refused = await call("owner", `/api/x/workspace/start/${source}`, {
+            method: "POST",
+            body: { message: "own model", key: "own-unlisted", model: "faux/faux-1" },
+        });
+
+        assert.equal(refused.status, 403);
+    } finally {
+        await app.allowSubagentModel(owner(app), "faux/faux-2", false);
+    }
 });
 
 test("human creation inherits fresh non-selection source settings after provider checks", async (t) => {

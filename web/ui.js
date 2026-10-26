@@ -144,6 +144,15 @@ const PURIFY = {
     RETURN_DOM_FRAGMENT: true,
 };
 
+/**
+ * The app's own sanitizer, with its settings read once (`setConfig`): given them on each call, it reads them again for
+ * each reply. Its own instance, so what it is set to and its hooks (below) change nothing for an extension's module that
+ * imports `dompurify` too.
+ */
+const purify = DOMPurify(window);
+
+purify.setConfig(PURIFY);
+
 /** Images the app serves for a conversation (files, stored images, artifacts), or inline data. Nothing else loads. */
 const localImage = (src) =>
     /^\/api\/c\/\d+\/(file\?|image\/)/.test(src) ||
@@ -245,7 +254,7 @@ function codeBlock(pre, fold) {
  * it loads, and code blocks are drawn by `codeBlock` (folded when long, if `fold`). Returns the element holding it.
  */
 function sanitize(html, fold) {
-    const fragment = DOMPurify.sanitize(html, PURIFY);
+    const fragment = purify.sanitize(html);
 
     // `src/app.ts` in a reply opens the file: inline code that is a path, not code blocks.
     for (const code of fragment.querySelectorAll("code")) {
@@ -367,19 +376,35 @@ function fencePage(text) {
 /** The conversation whose markdown is being sanitized, for image paths relative to its folder. */
 let rendering = null;
 
-DOMPurify.addHook("uponSanitizeAttribute", (node, data) => {
-    // Before the URL check, so file:// and plain paths become app URLs instead of being dropped.
-    if (node.nodeName === "IMG" && data.attrName === "src") {
-        data.attrValue = imageSource(data.attrValue, rendering);
-    } else if (node.nodeName === "A" && data.attrName === "href") {
-        // `app.ts:42` looks like a URL scheme to the sanitizer; `./app.ts:42` is the same local file.
-        if (/^[a-z][a-z0-9+.-]*:/i.test(data.attrValue) && linkedPath(data.attrValue) !== null) {
-            data.attrValue = `./${data.attrValue}`;
+/**
+ * An element's attribute as the sanitizer reads it next. Before any of its checks (the URL check too), and before the
+ * attributes are read: a hook on each attribute would make it copy its lists of allowed names on each call.
+ */
+function rewrite(node, name, change) {
+    const value = node.getAttribute(name);
+
+    if (value !== null) {
+        const next = change(value.trim());
+
+        if (next !== value) {
+            node.setAttribute(name, next);
         }
+    }
+}
+
+purify.addHook("beforeSanitizeAttributes", (node) => {
+    // Before the URL check, so file:// and plain paths become app URLs instead of being dropped.
+    if (node.nodeName === "IMG") {
+        rewrite(node, "src", (src) => imageSource(src, rendering));
+    } else if (node.nodeName === "A") {
+        // `app.ts:42` looks like a URL scheme to the sanitizer; `./app.ts:42` is the same local file.
+        rewrite(node, "href", (href) =>
+            /^[a-z][a-z0-9+.-]*:/i.test(href) && linkedPath(href) !== null ? `./${href}` : href,
+        );
     }
 });
 
-DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+purify.addHook("afterSanitizeAttributes", (node) => {
     if (node.tagName === "A") {
         node.setAttribute("target", "_blank");
         node.setAttribute("rel", "noopener noreferrer");
@@ -643,11 +668,36 @@ export function openFile(path) {
     openSheet({ type: "file", id: target.path, line: target.line });
 }
 
-/** File paths in rendered markdown open in the viewer. */
+/**
+ * Whether a click or key asks to show a path in the file manager rather than the viewer: Ctrl (⌘ on a Mac) held, by the
+ * owner, whose machine the server runs on.
+ */
+export const revealAsked = (event) =>
+    (APPLE ? event.metaKey : event.ctrlKey) && store.state.me?.role === "owner";
+
+/** Show a file (or folder) of the session in the file manager of the machine the server runs on, selected. */
+export function revealFile(path) {
+    const match = /^(.*?):(\d+)(?:-\d+)?$/.exec(path);
+
+    actions.reveal(match ? match[1] : path).then(
+        () => notify("info", "Shown in the file manager on the server's machine."),
+        (error) => notify("error", error.message ?? String(error)),
+    );
+}
+
+/** File paths in rendered markdown open in the viewer, or with Ctrl (⌘) held, in the file manager. */
 document.addEventListener("click", (event) => {
     const target = event.target.closest?.(".md code[data-path], .md a[data-path]");
 
     if (!target) {
+        return;
+    }
+
+    if (revealAsked(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        revealFile(target.dataset.path);
+
         return;
     }
 
@@ -671,7 +721,12 @@ document.addEventListener("keydown", (event) => {
 
     if (target && (event.key === "Enter" || event.key === " ") && !event.repeat) {
         event.preventDefault();
-        openFile(target.dataset.path);
+
+        if (revealAsked(event)) {
+            revealFile(target.dataset.path);
+        } else {
+            openFile(target.dataset.path);
+        }
     }
 });
 
@@ -807,21 +862,86 @@ export function formatBytes(bytes) {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+// Times as this device writes them, each format made once: making one costs more than using it, and a transcript
+// writes a time for each message.
+const TIME = new Intl.DateTimeFormat([], { hour: "numeric", minute: "2-digit" });
+const DAY = new Intl.DateTimeFormat([], { month: "short", day: "numeric" });
+const WEEKDAY = new Intl.DateTimeFormat([], { weekday: "short" });
+
+/** Whether a date is today, on this device's clock. */
+function isToday(date) {
+    const now = new Date();
+
+    return (
+        date.getDate() === now.getDate() &&
+        date.getMonth() === now.getMonth() &&
+        date.getFullYear() === now.getFullYear()
+    );
+}
+
+/** When something happened, on this device's clock: "10:42" today, "Oct 3 10:42" before. */
+export function clockTime(date) {
+    const time = TIME.format(date);
+
+    return isToday(date) ? time : `${DAY.format(date)} ${time}`;
+}
+
 /** A time ahead, on this device's clock: "14:30" today, "Mon 09:00" this week, "Oct 20 09:00" later. */
 export function formatWhen(ms) {
     const at = new Date(ms);
-    const time = at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const time = TIME.format(at);
 
-    if (at.toDateString() === new Date().toDateString()) {
+    if (isToday(at)) {
         return time;
     }
 
-    const day =
-        ms - Date.now() < 6 * 86_400_000
-            ? at.toLocaleDateString([], { weekday: "short" })
-            : at.toLocaleDateString([], { month: "short", day: "numeric" });
+    const day = ms - Date.now() < 6 * 86_400_000 ? WEEKDAY.format(at) : DAY.format(at);
 
     return `${day} ${time}`;
+}
+
+/** The minute now, for what shows a time ago: a memo that keys on it draws again as the minute turns (`useMinute`). */
+const minuteNow = () => Math.floor(Date.now() / 60_000);
+
+/** Listeners to the minute's turn, and its timer while any listen. */
+const minuteListeners = new Set();
+let minuteTimer = 0;
+
+function tickMinute() {
+    minuteTimer = setTimeout(tickMinute, 60_000 - (Date.now() % 60_000));
+
+    for (const listener of minuteListeners) {
+        listener(minuteNow());
+    }
+}
+
+/**
+ * The minute now, which draws the component again as it turns: memoized rows that show "5m" would otherwise keep it.
+ * One timer for every component that uses it.
+ */
+export function useMinute() {
+    const [minute, setMinute] = useState(minuteNow);
+
+    useEffect(() => {
+        minuteListeners.add(setMinute);
+
+        if (minuteListeners.size === 1) {
+            minuteTimer = setTimeout(tickMinute, 60_000 - (Date.now() % 60_000));
+        }
+
+        // A minute that turned before this effect ran.
+        setMinute(minuteNow());
+
+        return () => {
+            minuteListeners.delete(setMinute);
+
+            if (minuteListeners.size === 0) {
+                clearTimeout(minuteTimer);
+            }
+        };
+    }, []);
+
+    return minute;
 }
 
 export function timeAgo(ms) {
@@ -1107,12 +1227,18 @@ export function useEdge(name, measure) {
                 }
             };
 
+            // Its first measure too, once the page is laid out and before it paints: measured as it mounts, it would lay
+            // out the page in the middle of a draw.
             const observer = new ResizeObserver(update);
             // A pane popping in (`popin` scales it) moves the element without resizing it: measured again as an
-            // animation around it ends.
+            // animation around it ends. Not for the others (a row that rose in, a group that unrolled).
             let frame = 0;
 
-            const settled = () => {
+            const settled = (event) => {
+                if (!(event.target instanceof Node) || !event.target.contains(element)) {
+                    return;
+                }
+
                 cancelAnimationFrame(frame);
                 frame = requestAnimationFrame(update);
             };
@@ -1121,7 +1247,6 @@ export function useEdge(name, measure) {
             observer.observe(element);
             addEventListener("resize", update);
             document.addEventListener("animationend", settled);
-            update();
 
             return () => {
                 observer.disconnect();
@@ -1139,6 +1264,61 @@ export function useEdge(name, measure) {
         return (element) => {
             stop?.();
             stop = element ? publish(element) : null;
+        };
+    });
+
+    return ref;
+}
+
+/**
+ * Say where a scroller has more than it shows: `data-more` is "up", "down", or "both" while it can scroll that way, and
+ * gone while everything shows. The stylesheet fades that edge, so a list whose scrollbar is hidden still says it
+ * scrolls. It follows scrolling, the scroller's size, and what is added to it or taken away. Returns a ref callback:
+ * give it to the scroller as its `ref`.
+ */
+export function useScrollMore() {
+    const [ref] = useState(() => {
+        let stop = null;
+
+        const watch = (element) => {
+            let frame = 0;
+
+            const update = () => {
+                frame = 0;
+                const up = element.scrollTop > 1;
+                const down = element.scrollTop + element.clientHeight < element.scrollHeight - 1;
+                const more = up && down ? "both" : up ? "up" : down ? "down" : null;
+
+                if (more === null) {
+                    element.removeAttribute("data-more");
+                } else if (element.dataset.more !== more) {
+                    element.dataset.more = more;
+                }
+            };
+
+            const later = () => {
+                frame ||= requestAnimationFrame(update);
+            };
+
+            const sizes = new ResizeObserver(later);
+            const content = new MutationObserver(later);
+
+            sizes.observe(element);
+            content.observe(element, { childList: true, subtree: true });
+            element.addEventListener("scroll", later, { passive: true });
+            later();
+
+            return () => {
+                cancelAnimationFrame(frame);
+                sizes.disconnect();
+                content.disconnect();
+                element.removeEventListener("scroll", later);
+            };
+        };
+
+        return (element) => {
+            stop?.();
+            stop = element ? watch(element) : null;
         };
     });
 
@@ -1182,11 +1362,13 @@ export function usePresence(value, ms = 200) {
 }
 
 /**
- * Where a sliding indicator goes: the offset and size of the element matching `selector` inside `ref`, measured after
- * every render. null when there is none, or it is in a folded group. `instant` is true the first time it shows, so it
- * appears in place instead of sliding in from the top.
+ * Where a sliding indicator goes: the offset and size of the element matching `selector` inside `ref`. null when there
+ * is none, or it is in a folded group. `instant` is true the first time it shows, so it appears in place instead of
+ * sliding in from the top. `key` says which element is selected: it is measured again when `key` changes, and when the
+ * list resizes or settles, not after every render. Measured after every render, each copy of the list laid the page out
+ * early, and Back to the list on a phone froze the longer for it.
  */
-export function useSlide(ref, selector, axis = "y") {
+export function useSlide(ref, selector, axis = "y", key = undefined) {
     const [box, setBox] = useState(null);
     const hidden = useRef(true);
 
@@ -1202,7 +1384,7 @@ export function useSlide(ref, selector, axis = "y") {
         setBox((box) => (next?.at === box?.at && next?.size === box?.size ? box : next));
     };
 
-    useLayoutEffect(measure);
+    useLayoutEffect(measure, [key]);
     // Rows move without a render while a group folds, or the window resizes: measure again when they settle.
     useEffect(() => {
         const host = ref.current;
@@ -1212,8 +1394,11 @@ export function useSlide(ref, selector, axis = "y") {
         }
 
         const settle = (event) => event.target !== host && measure();
+        // A theme's stylesheets can move the element without resizing the list.
+        const again = () => measure();
 
         host.addEventListener("transitionend", settle);
+        document.addEventListener("pocket:theme", again);
         const observer =
             typeof ResizeObserver === "function" ? new ResizeObserver(() => measure()) : null;
 
@@ -1221,6 +1406,7 @@ export function useSlide(ref, selector, axis = "y") {
 
         return () => {
             host.removeEventListener("transitionend", settle);
+            document.removeEventListener("pocket:theme", again);
             observer?.disconnect();
         };
     }, [ref.current]);
@@ -1261,6 +1447,9 @@ export function useSide(ref, of = (element) => element) {
     const [side, setSide] = useState("left");
     const look = useRef(null);
 
+    const watched = useRef(null);
+    const watcher = useRef(null);
+
     look.current = () => {
         const element = ref.current && of(ref.current);
         const box = element?.getBoundingClientRect();
@@ -1270,8 +1459,25 @@ export function useSide(ref, of = (element) => element) {
         }
     };
 
-    // After each draw (the element may have only now come), and when the window or the theme changes.
-    useLayoutEffect(() => look.current());
+    // Measured when the browser lays the element out anyway, before the frame is painted: as it comes, shows, or changes
+    // size (a ResizeObserver says so). Measured after each draw instead, it laid the whole page out early, and opening a
+    // session froze the longer for it on a phone.
+    useLayoutEffect(() => {
+        const element = ref.current && of(ref.current);
+
+        if (element === watched.current) {
+            return;
+        }
+
+        watched.current = element;
+        watcher.current ??= new ResizeObserver(() => look.current());
+        watcher.current.disconnect();
+
+        if (element) {
+            watcher.current.observe(element);
+        }
+    });
+    // And when the window or the theme changes, which can move it without resizing it.
     useLayoutEffect(() => {
         const again = () => look.current();
 
@@ -1281,6 +1487,7 @@ export function useSide(ref, of = (element) => element) {
         return () => {
             removeEventListener("resize", again);
             document.removeEventListener("pocket:theme", again);
+            watcher.current?.disconnect();
         };
     }, []);
 
@@ -1327,38 +1534,45 @@ export class Boundary extends Component {
     }
 }
 
-/** The parts of the store a streaming answer changes several times a second: the open conversation's, and PiP's. */
-const VIEWS = new Set(["view", "pipView"]);
-
 /**
- * Whether the store changed between two states only in the views (`VIEWS`). Nothing changed at all is no: `store.set({})`
- * draws everything again.
+ * Whether the store changed in none of `keys` between two states. A change to nothing at all is a change:
+ * `store.set({})` draws everything again (a media query that changed, say).
  */
-function onlyViews(before, after) {
-    let views = false;
+function quietFor(keys, before, after) {
+    if (before === after) {
+        return false;
+    }
 
-    for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    let changed = false;
+
+    for (const key in after) {
         if (before[key] !== after[key]) {
-            if (!VIEWS.has(key)) {
+            if (keys.has(key)) {
                 return false;
             }
 
-            views = true;
+            changed = true;
         }
     }
 
-    return views;
+    for (const key in before) {
+        if (!(key in after)) {
+            return false;
+        }
+    }
+
+    return changed;
 }
 
 const sameProps = (a, b) =>
     Object.keys(a).length === Object.keys(b).length &&
     Object.keys(a).every((key) => Object.is(a[key], b[key]));
 
-class ApartFromViews extends Component {
+class DrawnFor extends Component {
     shouldComponentUpdate(next) {
         return !(
             next.component === this.props.component &&
-            onlyViews(this.props.state, next.state) &&
+            quietFor(next.keys, this.props.state, next.state) &&
             sameProps(this.props.props, next.props)
         );
     }
@@ -1369,12 +1583,47 @@ class ApartFromViews extends Component {
 }
 
 /**
- * `component`, drawn again on every change to the store but one that changes only the views (`VIEWS`), as an answer
- * streams: for big parts that read neither, such as the session list, which stays drawn off-screen on phones. Its own
- * state draws it again as usual.
+ * `component`, drawn again only when the store changes in one of `keys`, its props change, or `store.set({})` asks
+ * everything to draw again: for big parts that read little of the store, such as the session list. `keys` must name
+ * every key of the store it reads as it draws, and every key the functions it calls read (`prefs()` reads
+ * `appearance`, `canSteer()` reads `me`): a key left out shows stale data. What it reads only in an event handler
+ * does not count. Its own state draws it again as usual.
  */
-export function apartFromViews(component) {
-    const Wrapped = (props) => h(ApartFromViews, { component, props, state: store.state });
+export function drawnFor(keys, component) {
+    const set = new Set(keys);
+    const Wrapped = (props) => h(DrawnFor, { component, props, keys: set, state: store.state });
+
+    Wrapped.displayName = component.name;
+
+    return Wrapped;
+}
+
+class Memo extends Component {
+    shouldComponentUpdate(next) {
+        const { ignored } = next;
+        const before = this.props.props;
+        const after = next.props;
+        const keys = Object.keys(after).filter((key) => !ignored.includes(key));
+
+        return (
+            next.component !== this.props.component ||
+            Object.keys(before).length !== Object.keys(after).length ||
+            keys.some((key) => !Object.is(before[key], after[key]))
+        );
+    }
+
+    render({ component, props }) {
+        return h(component, props);
+    }
+}
+
+/**
+ * `component`, drawn again only when its props change (each compared with `Object.is`) or its own state does. It must
+ * read nothing else as it draws, such as `store.state`: what it needs comes as props. `ignored` names props it reads
+ * only as it mounts, whose change alone does not draw it again.
+ */
+export function memo(component, ignored = []) {
+    const Wrapped = (props) => h(Memo, { component, props, ignored });
 
     Wrapped.displayName = component.name;
 
@@ -1383,6 +1632,21 @@ export function apartFromViews(component) {
 
 /** Phones: sheets from the bottom edge, which drag back down to close, and menus that a swipe closes. */
 export const BOTTOM_SHEETS = matchMedia("(max-width: 699px)");
+
+/**
+ * Wide screens, where the sidebar and the home screen's splash show (style.css's 960px). Narrower, the app does not
+ * draw them at all: hidden, they cost a phone the list's whole draw again.
+ */
+export const WIDE = matchMedia("(min-width: 960px)");
+
+/** No pointer that hovers (a touch screen): what only hovering shows, such as a row's buttons, is not drawn. */
+export const NO_HOVER = matchMedia("(hover: none)");
+
+// Each changing (a window resized, a phone turned, a mouse plugged in) draws the app again, with or without them: a sheet
+// open as the phone turns gets its drag to close, or lets go of it.
+for (const query of [WIDE, NO_HOVER, BOTTOM_SHEETS]) {
+    query.addEventListener("change", () => store.set({}));
+}
 
 /** The sheet host supplies a back action only when another sheet is under this one. */
 export const SheetBack = createContext(null);

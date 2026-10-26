@@ -82,7 +82,7 @@ test("switching waits for git's say, a good name, and the right person", async (
 
     await assert.rejects(app.workspace.switchBranch(id, me, { name: "in-a-worktree" }), {
         status: 409,
-        message: /already used by worktree/,
+        message: /already (?:used by worktree|checked out at)/,
     });
     await assert.rejects(app.workspace.switchBranch(id, me, { name: "--force" }), { status: 400 });
     // What is to be followed must be a remote branch, never an option for git.

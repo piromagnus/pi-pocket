@@ -78,11 +78,22 @@ interface PocketConfig {
     /** The tokens of context above which PiP compacts itself once idle; 0: only as sessions do. Absent: the default. */
     pipCompactAt?: number;
     /**
-     * The models (`provider/modelId`) Pi may start subagents on besides their session's own, as the owner allowed them.
+     * The models (`provider/modelId`) Pi may start subagents on, as the owner allowed them.
      * Absent or empty: none, and subagents always run on their session's model.
      */
     subagentModels?: string[];
+    ponytailMode?: "off" | "lite" | "full" | "ultra";
+    /** The most hours a run waits for a model's limit to clear (`limit-gate.ts`); 0: it does not wait. Absent: 6. */
+    limitWaitHours?: number;
+    /**
+     * The owner's values for the settings extension modules declare (`web.settings`), by module and setting name. A
+     * setting with no value here has its default. Since 0.22.0; an older Pi Pocket ignores it.
+     */
+    extensionSettings?: Record<string, Record<string, string | number | boolean>>;
 }
+
+/** The hours a run waits for a model's limit to clear, until the owner says otherwise. */
+export const DEFAULT_LIMIT_WAIT_HOURS = 6;
 
 /** Who may allow a risky tool call: anyone who can steer, or (for guests) only someone other than who asked. */
 export type ApprovalRule = "anyone" | "others";
@@ -181,6 +192,30 @@ export class ConfigStore {
         this.save();
     }
 
+    /** The owner's values for a module's settings (`web.settings`): a copy, by name. */
+    extensionSettings(module: string): Record<string, string | number | boolean> {
+        return { ...(this.#config.extensionSettings?.[module] ?? {}) };
+    }
+
+    /** Keep a module's values, all of them at once; none drops its entry. */
+    setExtensionSettings(module: string, values: Record<string, string | number | boolean>): void {
+        const all = { ...(this.#config.extensionSettings ?? {}) };
+
+        if (Object.keys(values).length === 0) {
+            delete all[module];
+        } else {
+            all[module] = { ...values };
+        }
+
+        if (Object.keys(all).length === 0) {
+            delete this.#config.extensionSettings;
+        } else {
+            this.#config.extensionSettings = all;
+        }
+
+        this.save();
+    }
+
     /** The owner's choice of when PiP compacts itself (`pip-compact.ts`); undefined: its default. */
     get pipCompactAt(): number | undefined {
         return this.#config.pipCompactAt;
@@ -196,12 +231,17 @@ export class ConfigStore {
         this.save();
     }
 
-    /** The models Pi may start subagents on besides their session's own (`provider/modelId`); empty: none. */
+    /** The models Pi may start subagents on (`provider/modelId`); empty: none. */
     get subagentModels(): readonly string[] {
         const models = this.#config.subagentModels;
 
-        // Read from a file people may have edited: only strings count.
-        return Array.isArray(models) ? models.filter((each) => typeof each === "string") : [];
+        // Read from a file people may have edited: only provider/modelId strings count.
+        return Array.isArray(models)
+            ? models
+                  .filter((each) => typeof each === "string")
+                  .map((each) => each.trim())
+                  .filter((each) => each.indexOf("/") > 0)
+            : [];
     }
 
     set subagentModels(models: readonly string[]) {
@@ -209,6 +249,25 @@ export class ConfigStore {
             delete this.#config.subagentModels;
         } else {
             this.#config.subagentModels = [...models];
+        }
+
+        this.save();
+    }
+
+    /** How many hours a run waits for a limit to clear, at most; 0: not at all. */
+    get limitWaitHours(): number {
+        const hours = this.#config.limitWaitHours;
+
+        return typeof hours === "number" && Number.isFinite(hours) && hours >= 0
+            ? Math.min(hours, 24)
+            : DEFAULT_LIMIT_WAIT_HOURS;
+    }
+
+    set limitWaitHours(hours: number) {
+        if (hours === DEFAULT_LIMIT_WAIT_HOURS) {
+            delete this.#config.limitWaitHours;
+        } else {
+            this.#config.limitWaitHours = Math.min(Math.max(hours, 0), 24);
         }
 
         this.save();

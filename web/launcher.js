@@ -4,26 +4,38 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { browserAvailable, toggleBrowser } from "./browser.js";
 import { folderColor } from "./avatar.js";
-import { planAvailable, schedulesAvailable } from "./commands.js";
-import { extensionLauncherItems } from "./extension-ui.js";
+import {
+    planAvailable,
+    schedulesAvailable,
+    triggersOn,
+    watchAvailable,
+    watchPr,
+} from "./commands.js";
+import { extensionLauncherItems, sessionWords } from "./extension-ui.js";
 import { filesAvailable, toggleFiles } from "./files-panel.js";
+import { useDragToClose } from "./gestures.js";
 import { togglePeeks } from "./peeks.js";
 import { modelRefreshAvailable, refreshModels } from "./model-refresh.js";
 import { openPip, pipAvailable } from "./pip.js";
-import { setArchived } from "./sessions.js";
+import { setArchived, toggleBoard } from "./sessions.js";
 import { branchAvailable, headLabel } from "./sheets/branch.js";
 import { recentLabels } from "./sheets/folder.js";
 import { galleryAvailable } from "./sheets/gallery.js";
+import { memoryAvailable } from "./sheets/memory.js";
 import { piSessionsAvailable } from "./sheets/pi-sessions.js";
 import {
     actions,
     attempt,
+    api,
     canSteer,
+    canToggleTurns,
     collab,
     navigate,
     notify,
     openSheet,
     scoped,
+    sessionOrder,
+    setUnread,
     signOut,
     store,
     workspaceOrder,
@@ -32,6 +44,7 @@ import {
     BASE_LOOK,
     chooseLook,
     folderPaletteIds,
+    isPinned,
     lookIds,
     paletteOf,
     prefs,
@@ -39,9 +52,22 @@ import {
     setPrefs,
     themeIds,
     themeVars,
+    togglePin,
     varsStyle,
 } from "./theme.js";
-import { APPLE, copyText, html, Icon, Keys, Marked, scrimPress, shortPath, timeAgo } from "./ui.js";
+import { trustAvailable } from "./trust.js";
+import {
+    APPLE,
+    BOTTOM_SHEETS,
+    copyText,
+    html,
+    Icon,
+    Keys,
+    Marked,
+    scrimPress,
+    shortPath,
+    timeAgo,
+} from "./ui.js";
 
 /** How far a letter that does not begin a word may be from the one before it, in a match that is not contiguous. */
 const MAX_GAP = 3;
@@ -104,6 +130,8 @@ function actionItems() {
     const conversation = conversationId !== null ? view.conversation : null;
     const session = conversation?.kind === "session";
     const steer = canSteer();
+    // While take turns is on, the session's settings are the driver's (as in the menu).
+    const driving = !view.turns?.on || view.turns.driver === me?.id;
     const canStart = steer && !scoped();
     // The folder a session starts in "here": the one the open session works in. Issue #96, reported by @poncardasm.
     const here = view.agent?.cwd ?? conversation?.cwd ?? null;
@@ -162,7 +190,7 @@ function actionItems() {
         },
         {
             label: prefs().peeks ? "Hide peek tiles" : "Show peek tiles",
-            detail: "other sessions' live work beside this one",
+            detail: "Peeks: other sessions' live work beside this one",
             icon: "tiles",
             keys: "Alt P",
             run: togglePeeks,
@@ -238,6 +266,24 @@ function actionItems() {
                 icon: "chat",
                 run: () => openSheet({ type: "chat" }),
             },
+        conversation && {
+            label: "Find in this session",
+            detail: "messages, by words",
+            keywords: "search",
+            icon: "search",
+            keys: "Mod F",
+            run: () => openSheet({ type: "find" }),
+        },
+        conversation &&
+            collab() &&
+            canToggleTurns() && {
+                label: view.turns?.on ? "Turn off take turns" : "Take turns",
+                detail: view.turns?.on
+                    ? "anyone here can send to Pi again"
+                    : "one person drives Pi at a time",
+                icon: "users",
+                run: () => attempt(() => actions.turns(view.turns?.on ? "off" : "on")),
+            },
         session &&
             steer && {
                 label: "Rename session",
@@ -252,6 +298,101 @@ function actionItems() {
                 icon: "shield",
                 run: () => attempt(() => actions.setPlan(!view.plan?.on)),
             },
+        session && {
+            label: isPinned(conversation.id) ? "Unpin from the top" : "Pin to the top",
+            detail: "this browser",
+            icon: "pin",
+            run: () => togglePin(conversation.id),
+        },
+        session && {
+            label: "Mark unread",
+            detail: "this browser; opening it again clears it",
+            icon: "chat",
+            run: () => {
+                setUnread(conversation.id, true);
+                navigate(null);
+            },
+        },
+        conversation?.worktree && steer
+            ? {
+                  label: "Worktree",
+                  detail: conversation.worktree.branch,
+                  keywords: "git branch",
+                  icon: "fork",
+                  run: () => openSheet({ type: "worktree" }),
+              }
+            : conversation &&
+              steer &&
+              driving &&
+              !scoped() && {
+                  label: "Working directory",
+                  detail: shortPath(view.agent?.cwd, server?.home),
+                  keywords: "folder cwd",
+                  icon: "folder",
+                  run: () => openSheet({ type: "cwd", mode: "change" }),
+              },
+        conversation &&
+            trustAvailable() && {
+                label: "Project trust",
+                detail: "the project's own skills and model settings",
+                icon: "shield",
+                run: () => openSheet({ type: "trust" }),
+            },
+        session &&
+            steer &&
+            driving && {
+                label: "Instructions for Pi",
+                detail: view.agent?.instructions ? "on" : "none",
+                keywords: "prompt system",
+                icon: "sparkle",
+                run: () => openSheet({ type: "instructions" }),
+            },
+        conversation &&
+            steer &&
+            driving && {
+                label: "Compact context",
+                detail: "summarize older messages",
+                icon: "sparkle",
+                run: () => openSheet({ type: "compact" }),
+            },
+        conversation &&
+            steer &&
+            driving && {
+                label: "New context",
+                detail: "Pi starts fresh; history stays",
+                keywords: "reset clear",
+                icon: "reload",
+                run: () => openSheet({ type: "reset" }),
+            },
+        conversation &&
+            memoryAvailable() && {
+                label: "Memory",
+                detail: "lessons Pi keeps across sessions",
+                icon: "sparkle",
+                run: () => openSheet({ type: "memory" }),
+            },
+        watchAvailable() &&
+            steer &&
+            view.watch?.status !== "watching" && {
+                label: "Watch pull request",
+                detail: "fix CI, answer reviews",
+                keywords: "github pr",
+                icon: "fork",
+                run: () => attempt(() => watchPr()),
+            },
+        conversation && {
+            label: "Export as Markdown",
+            detail: "the whole history",
+            keywords: "download",
+            icon: "external",
+            run: () => {
+                const link = document.createElement("a");
+
+                link.href = `/api/c/${conversation.id}/export`;
+                link.download = "";
+                link.click();
+            },
+        },
         schedulesAvailable() && {
             label: "Scheduled messages",
             icon: "pulse",
@@ -286,6 +427,26 @@ function actionItems() {
             icon: "pulse",
             run: () => openSheet({ type: "running" }),
         },
+        {
+            label: store.state.board ? "Close the subagents board" : "Subagents",
+            detail: "subagents in every session",
+            icon: "fork",
+            run: toggleBoard,
+        },
+        collab() && {
+            label: "Notifications",
+            detail: "Pi finished, approvals, chat",
+            icon: "pulse",
+            run: () => openSheet({ type: "notifications" }),
+        },
+        triggersOn() &&
+            me?.role !== "viewer" && {
+                label: "Webhooks and watches",
+                detail: "GitHub, other services",
+                keywords: "hooks triggers watch pull request",
+                icon: "external",
+                run: () => openSheet({ type: "hooks" }),
+            },
         me?.role === "owner" && {
             label: "Providers",
             detail: "sign in to model providers",
@@ -332,6 +493,17 @@ function actionItems() {
             icon: "users",
             run: () => openSheet({ type: "name" }),
         },
+        me?.role === "owner" &&
+            server?.supervised && {
+                label: "Restart server",
+                detail: "running work resumes",
+                icon: "reload",
+                run: () =>
+                    attempt(async () => {
+                        await api("restart", {});
+                        notify("info", "Restarting. Running work continues after the restart.");
+                    }),
+            },
         { label: "Sign out", detail: "this browser", icon: "logout", run: signOut },
         // What extensions' browser modules added (`extension-ui.js`).
         ...extensionLauncherItems(),
@@ -362,12 +534,15 @@ function actionItems() {
 
 function sessionItems() {
     const { sessions, server } = store.state;
-    const order = workspaceOrder();
+    // Every session, folded ones too; the numbers are Alt's, which skip what a fold hides.
+    const order = sessionOrder();
     const archived = sessions.filter((session) => session.archived);
-    const numbers = new Map(order.map((session, index) => [session.id, index]));
+    const numbers = new Map(workspaceOrder().map((session, index) => [session.id, index]));
 
     return [...order, ...archived].map((session) => {
         const number = numbers.get(session.id) ?? -1;
+        // Words extensions give it (`pocket.sessionSearch`), such as tags: matched after the title and folder.
+        const words = sessionWords(session);
 
         return {
             kind: "session",
@@ -382,7 +557,8 @@ function sessionItems() {
                 ]
                     .filter(Boolean)
                     .join(" · ") || timeAgo(session.updatedAt),
-            text: `${session.title ?? "New session"} ${shortPath(session.cwd, server?.home)}`,
+            text: `${session.title ?? "New session"} ${shortPath(session.cwd, server?.home)}${words.length > 0 ? ` ${words.join(" ")}` : ""}`,
+            words,
             keys: number >= 0 && number < 9 ? `Alt ${number + 1}` : undefined,
             rank: session.archived ? -20 : -number * 0.01,
             run: () => navigate(session.id),
@@ -481,7 +657,15 @@ export function Launcher({ leaving, returnTo }) {
     const [announcement, setAnnouncement] = useState("");
     const input = useRef(null);
     const list = useRef(null);
+    const dialog = useRef(null);
     const chosen = useRef(false);
+
+    // Phones: a sheet from the bottom edge, which drags back down to close, as the app's other sheets do.
+    useDragToClose(dialog, {
+        dir: "down",
+        onClose: () => store.set({ launcher: false }),
+        enabled: BOTTOM_SHEETS.matches,
+    });
 
     const prefix = PREFIXES[query[0]];
     const needle = (prefix ? query.slice(1) : query).trim().toLowerCase();
@@ -513,7 +697,7 @@ export function Launcher({ leaving, returnTo }) {
                 match.hits.length > 0 && hits.length === 0 && detailHits.length === 0
                     ? item.kind === "theme"
                         ? "Theme name or ID match"
-                        : "Keyword match"
+                        : (item.words?.find((word) => word.includes(needle)) ?? "Keyword match")
                     : null;
 
             scored.push({
@@ -600,6 +784,9 @@ export function Launcher({ leaving, returnTo }) {
         const overlay = input.current?.closest(".launcher-overlay");
         const parent = overlay?.parentElement;
         const blocked = new Map();
+        // Touch screens: the launcher takes focus, not its field, so no keyboard covers the results; a tap on the
+        // field brings it up. As Sheet does.
+        const home = matchMedia("(pointer: coarse)").matches ? dialog.current : input.current;
 
         const restore = (child, { attribute, value }) => {
             if (value === null) {
@@ -655,7 +842,7 @@ export function Launcher({ leaving, returnTo }) {
 
         const keepFocus = (event) => {
             if (!overlay?.contains(event.target)) {
-                input.current?.focus({ preventScroll: true });
+                home?.focus({ preventScroll: true });
             }
         };
 
@@ -664,7 +851,7 @@ export function Launcher({ leaving, returnTo }) {
 
         // Move focus out before hiding its old ancestor from AT (Chromium rejects aria-hidden on focused content).
         document.addEventListener("focusin", keepFocus);
-        input.current?.focus({ preventScroll: true });
+        home?.focus({ preventScroll: true });
         isolate();
 
         if (parent) {
@@ -689,7 +876,11 @@ export function Launcher({ leaving, returnTo }) {
             }
 
             const active = document.activeElement;
-            const lost = active === null || active === document.body || active === input.current;
+            const lost =
+                active === null ||
+                active === document.body ||
+                active === input.current ||
+                active === dialog.current;
             const sheet = document.querySelector(".sheet-host:not(.leaving) .sheet");
             const back = sheet?.contains(returnTo) ? returnTo : (sheet ?? returnTo);
 
@@ -783,11 +974,28 @@ export function Launcher({ leaving, returnTo }) {
     };
 
     const onKey = (event) => {
-        if (event.isComposing || event.keyCode === 229) {
+        const key = event.key;
+        // A touch screen with a keyboard: the launcher holds focus, not its field (see `home` above). Typing goes to the
+        // field, which takes focus before the key lands: a letter, a dead key (an accent to come), an input method's
+        // keys, or AltGr's (Ctrl+Alt on Windows); not a shortcut. The keys that move and open work from the launcher too.
+        const onDialog = event.target === dialog.current;
+        const composing = event.isComposing || event.keyCode === 229 || key === "Process";
+        const altGr = event.ctrlKey && event.altKey;
+        const typing =
+            (key.length === 1 || key === "Backspace" || key === "Dead" || composing) &&
+            !event.metaKey &&
+            (altGr || (!event.ctrlKey && !event.altKey) || composing);
+
+        if (onDialog && typing) {
+            input.current?.focus({ preventScroll: true });
+
             return;
         }
 
-        const key = event.key;
+        // The keys an input method uses to compose (Escape, Enter among them) are its own, not the launcher's.
+        if (composing) {
+            return;
+        }
 
         if (key === "Escape") {
             event.preventDefault();
@@ -798,7 +1006,11 @@ export function Launcher({ leaving, returnTo }) {
         }
 
         // Toolbar buttons keep their native Enter/Space behavior; options and the input share navigation.
-        if (event.target !== input.current && !event.target.closest(".launcher-item")) {
+        if (
+            !onDialog &&
+            event.target !== input.current &&
+            !event.target.closest(".launcher-item")
+        ) {
             return;
         }
 
@@ -841,12 +1053,15 @@ export function Launcher({ leaving, returnTo }) {
             class="launcher"
             data-part="launcher"
             data-state=${leaving ? "closing" : undefined}
+            ref=${dialog}
             role="dialog"
             aria-modal="true"
             aria-label="Launcher"
+            tabindex="-1"
             onKeyDown=${onKey}
             onMouseDown=${(event) => event.target !== input.current && event.preventDefault()}
         >
+            <div class="grip" aria-hidden="true"></div>
             <div class="launcher-input" data-part="launcher-input">
                 <span class="prompt" aria-hidden="true">❯</span>
                 <input

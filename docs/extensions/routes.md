@@ -25,13 +25,14 @@ web.route("GET", "items/:id", ({ params }) => {
 
 ## The request
 
-`handle(request)` gets `{ method, params, query, body, user, signal, snapshot, context, commit }`:
+`handle(request)` gets `{ method, params, query, body, user, signal, snapshot, context, commit, sessions }`:
 
 - `params`: the `:name` parts of the path.
 - `query`: the query string, as `URLSearchParams`. For example, `pocket.api("usage?days=7")` sends `days`.
 - `body`: the JSON object that the browser sent. It is empty for `GET` and `DELETE`.
 - `user`: who asked, as `{ id, name, role }`.
 - `signal`: aborted when the browser stops waiting. Normal handler return does not abort this signal.
+- Since 0.20.0 (experimental), `sessions()`: the sessions that this person can see now, as their session list shows them (`{ id, title, cwd, archived, updatedAt }`). Check the session ids that a browser sends against it, and leave out data about sessions that the person cannot see.
 - Since 0.16.0, `snapshot` and `context` read fresh module documents. Unlike `signal`, `context.abortSignal` is cancelled on disconnect or handler return, ending the new document and linked-session capabilities. `commit(change)` writes them atomically and returns the callback's answer. It refuses viewers, and callbacks that finish after the request ends roll back. Await writes before returning; do not keep request capabilities in timers. Follow the `x.<module>.…` document naming rule. These are not APIs for changing core documents.
 
 What the handler returns goes back as JSON. `undefined` goes back as `{}`.
@@ -76,7 +77,7 @@ Use an ordinary owner-only `web.route` for an app-wide catalog save. Its documen
 
 The app checks each request before your route gets it:
 
-- The person must be signed in.
+- The person must be signed in. For a page that people with no account open, use a [public page](public-pages.md).
 - The request must have the `X-Pocket` header. A link or a form on another site cannot send it. Your routes need it for `GET` too, so no other site can make a `GET` to them. `pocket.api` always sends it. Anything else that calls your routes must send it too, for example `curl -H 'X-Pocket: 1'`. Without the header, Pi Pocket looks up nothing.
 
 ## Text from outside

@@ -152,6 +152,19 @@ const PLACES = [
         place: () => ({ icon: "search", run: () => openSheet({ type: "find" }) }),
     },
     {
+        // Ctrl K's launcher, for touch screens that have no keyboard to open it.
+        id: "core:launcher",
+        label: "Launcher",
+        place: () =>
+            touch && {
+                icon: "command",
+                run: () => {
+                    closeSheet();
+                    store.set({ launcher: true });
+                },
+            },
+    },
+    {
         id: "core:branch",
         label: "Branch",
         place: () =>
@@ -466,6 +479,7 @@ export function MenuSheet({ places = true }) {
                 )
             }
             ${conversation && trustAvailable() && item("Project trust", () => openSheet({ type: "trust" }), trustHint())}
+            ${session && extensionMenuItems("session").map((each) => item(each.label, each.run, each.hint))}
             ${session && steer && driving && item("Instructions for Pi", () => openSheet({ type: "instructions" }), instructions ? "on" : "none")}
             ${conversation && steer && driving && item("Compact context", () => openSheet({ type: "compact" }), "summarize older messages")}
             ${conversation && steer && driving && item("New context", () => openSheet({ type: "reset" }), "Pi starts fresh; history stays")}

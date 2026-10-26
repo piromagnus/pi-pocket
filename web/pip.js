@@ -4,6 +4,7 @@
 // events), so the session behind it stays as it was.
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { useBack } from "./back.js";
+import { boxKey, keyBox } from "./box-keys.js";
 import { useDragToClose } from "./gestures.js";
 import { createPipDraft } from "./pip-attachments.js";
 import { usePipResize } from "./pip-window.js";
@@ -500,6 +501,14 @@ function Item({ item, last, busy, conversationId }) {
         return line && html`<div class="pip-event"><span>${line}</span></div>`;
     }
 
+    // A page it showed in a reply (`artifact_inline`): in this panel, a line like its other work.
+    if (item.type === "inline") {
+        return html`<div class="pip-steps">
+            <span class="pip-tick"><${Icon} name="check" size=${10} /></span>
+            <span>${summarize([item.step], false)}</span>
+        </div>`;
+    }
+
     if (item.type === "activity") {
         const thinking =
             item.steps.at(-1)?.streaming && item.steps.at(-1).block.type === "thinking";
@@ -764,6 +773,18 @@ function Composer({ id, busy }) {
                 onInput=${(event) => change(event.currentTarget.value)}
                 onPaste=${onPaste}
                 onKeyDown=${(event) => {
+                    // A module's key (`pocket.composerKey`) comes first, as in the session's box.
+                    const keyed = keyBox(event.currentTarget, "pip", (value, start, end) => {
+                        change(value);
+                        requestAnimationFrame(() => ref.current?.setSelectionRange(start, end));
+                    });
+
+                    if (boxKey(event, keyed)) {
+                        event.preventDefault();
+
+                        return;
+                    }
+
                     if (
                         event.key === "Enter" &&
                         !event.shiftKey &&
@@ -833,6 +854,17 @@ function PendingMemories({ id }) {
     </div>`;
 }
 
+/** When PiP takes a message that waits: a steer at its next pause, a queued one when it finishes its work. */
+const pendingWhen = (item, busy) =>
+    !busy
+        ? "Waiting for PiP"
+        : item.mode === "steer"
+          ? "PiP reads this at its next pause"
+          : "PiP reads this when it finishes";
+
+/** Who sent a message, as the server writes it at the start when several people use Pi (`FROM_PREFIX`). */
+const FROM = /^\[from: [^\]\n]{1,60}\] /;
+
 function PipPanel({ leaving, scrim }) {
     const { pip, pipView: view, me } = store.state;
     const ref = useRef(null);
@@ -846,6 +878,12 @@ function PipPanel({ leaving, scrim }) {
               .map((entryId) => view.entries.get(entryId))
               .filter((entry) => entry && isRow(entry))
               .slice(-ROWS)
+        : [];
+    // Your messages that wait while PiP works: shown at once, as waiting, until PiP takes them.
+    const pending = ready
+        ? (view.inbox ?? []).filter(
+              (item) => item.by === me?.id && (item.mode === "steer" || item.mode === "followUp"),
+          )
         : [];
     const blocks = live.generation?.message?.blocks ?? [];
     const items = itemsOf(rows, blocks.length > 0 ? { kind: "assistant", blocks } : null);
@@ -1022,6 +1060,22 @@ function PipPanel({ leaving, scrim }) {
                     <span>Thinking</span>
                 </div>`
             }
+            ${pending.map(
+                (item) => html`<div class="pip-you pending" key=${`pending-${item.id}`}>
+                    <div>${(item.text ?? "").replace(FROM, "")}</div>
+                    <div class="pip-pending-line">
+                        <span>${pendingWhen(item, busy)}</span>
+                        <button
+                            type="button"
+                            class="pip-pending-withdraw"
+                            onClick=${() =>
+                                attempt(() => api(`c/${id}/withdraw`, { submissionId: item.id }))}
+                        >
+                            Withdraw
+                        </button>
+                    </div>
+                </div>`,
+            )}
         </div>
         ${
             waiting.length > 0 &&

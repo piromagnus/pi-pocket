@@ -105,7 +105,9 @@ export default function createPrompt(host: PocketHost) {
         return fresh;
     };
 
-    const cwdOf = (input: PromptInput) => input.env?.cwd ?? input.agent.cwd ?? process.cwd();
+    const cwdOf = (input: PromptInput) => input.agent.cwd ?? input.env?.cwd ?? process.cwd();
+    const remoteCwd = (input: PromptInput) =>
+        /^(?![a-z]:[\\/])[a-z][a-z0-9+.-]*:/i.test(cwdOf(input));
 
     return defineExtension({
         name: "pocket-prompt",
@@ -113,13 +115,21 @@ export default function createPrompt(host: PocketHost) {
             section("preamble", () => PREAMBLE, { tag: false }),
             section("guidelines", () => GUIDELINES),
             section("pocket_docs", () => docs(host.dataDir)),
-            section("project_context", (input) => load(cwdOf(input)).context),
-            section("skills", (input) => load(cwdOf(input)).skills, { tag: false }),
+            section("project_context", (input) =>
+                remoteCwd(input) ? undefined : load(cwdOf(input)).context,
+            ),
+            section(
+                "skills",
+                (input) => (remoteCwd(input) ? undefined : load(cwdOf(input)).skills),
+                { tag: false },
+            ),
             section("environment", (input) => {
                 // The date only, so the prompt stays cache-friendly through the day.
                 const today = new Date().toISOString().slice(0, 10);
 
-                return `Working directory: ${cwdOf(input)}\nPlatform: ${process.platform}\nToday: ${today}`;
+                const remote = remoteCwd(input);
+
+                return `Working directory: ${cwdOf(input)}\nPlatform: ${remote ? "remote workspace" : process.platform}\nToday: ${today}`;
             }),
         ],
     });

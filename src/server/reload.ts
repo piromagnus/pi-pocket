@@ -29,6 +29,7 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Extension, Registry } from "@earendil-works/pi-durable";
 import { describe } from "./errors.ts";
+import { documentImports } from "./extension-document-imports.ts";
 import { ExtensionWebs, OLDEST_POCKET_API, POCKET_API } from "./extension-web.ts";
 import type { ExtensionModule, PocketHost, WebAccess } from "./host.ts";
 
@@ -48,6 +49,7 @@ const ORDER = [
     "subagents.ts",
     "agent-teams.ts",
     "schedules.ts",
+    "background.ts",
     "goals.ts",
     "plan.ts",
     "anthropic-subscription.ts",
@@ -57,6 +59,9 @@ const ORDER = [
     "pip.ts",
     "triggers.ts",
     "gallery.ts",
+    "session-tags.ts",
+    "ask-someone.ts",
+    "updates.ts",
 ];
 
 /** The built-in modules' names (their files' without `.ts`): a drop-in with one of them is never loaded. */
@@ -66,7 +71,13 @@ export const BUILT_IN_MODULES: ReadonlySet<string> = new Set(
 /** Modules the app cannot work without: always on. */
 const REQUIRED = new Set(["prompt.ts"]);
 /** Built-in modules that stay off until the owner turns them on. Drop-ins all do. */
-const OFF_BY_DEFAULT = new Set(["guard.ts", "agent-teams.ts", "anthropic-subscription.ts"]);
+const OFF_BY_DEFAULT = new Set([
+    "guard.ts",
+    "agent-teams.ts",
+    "anthropic-subscription.ts",
+    "session-tags.ts",
+    "ask-someone.ts",
+]);
 const TITLES: Record<string, string> = {
     "prompt.ts": "System prompt",
     "artifacts.ts": "Artifacts",
@@ -74,6 +85,7 @@ const TITLES: Record<string, string> = {
     "subagents.ts": "Subagents",
     "agent-teams.ts": "Agent Teams",
     "schedules.ts": "Scheduled messages",
+    "background.ts": "Background tasks",
     "goals.ts": "Done when",
     "plan.ts": "Plan mode",
     "anthropic-subscription.ts": "Claude subscription billing",
@@ -83,6 +95,9 @@ const TITLES: Record<string, string> = {
     "pip.ts": "PiP",
     "triggers.ts": "Triggers",
     "gallery.ts": "Extension gallery",
+    "session-tags.ts": "Session tags",
+    "ask-someone.ts": "Ask someone",
+    "updates.ts": "Pi Pocket updates",
 };
 
 /**
@@ -99,10 +114,12 @@ export const BUILT_IN_TOOLS: ReadonlySet<string> = new Set([
     "edit",
     "bash",
     "artifact",
+    "artifact_inline",
     "browser",
     "subagent",
     "team",
     "schedule",
+    "background",
     "codemode",
     "memory",
     "sessions",
@@ -117,6 +134,7 @@ export const BUILT_IN_TOOLS: ReadonlySet<string> = new Set([
     "watch_pr",
     "repo_watch",
     "session_watch_pr",
+    "ask_someone",
 ]);
 
 /** Pi Pocket's own modules, or the owner's from the drop-in folder. */
@@ -146,9 +164,18 @@ export interface ExtensionInfo {
     }[];
     /**
      * What it adds to the app: its routes (`GET status`), who loads its browser module, when it has one, the widest
-     * access of the two, and its commands (`conversation /name`, `global /name`).
+     * access of the two, its commands (`conversation /name`, `global /name`), and whether it draws pages for anyone with
+     * one of its public links.
      */
-    web?: { routes: string[]; client?: WebAccess; access?: WebAccess; commands?: string[] };
+    web?: {
+        routes: string[];
+        client?: WebAccess;
+        access?: WebAccess;
+        commands?: string[];
+        publicPage?: boolean;
+        service?: boolean;
+        settings?: boolean;
+    };
     /** Why the module is not loaded, when it failed. */
     error?: string;
 }
@@ -295,6 +322,7 @@ export class ExtensionLoader {
      */
     readonly #generations = new Map<string, number>();
     readonly #loadLimitMs: number;
+    readonly #stopDocumentImports: () => void;
     /** The folder of each file's latest load: its removal from that folder takes that version away. */
     readonly #sources = new Map<string, string>();
     /** How to end each load still waiting for its module: the server stopping ends them. */
@@ -327,6 +355,10 @@ export class ExtensionLoader {
         this.#webs = options.webs ?? new ExtensionWebs();
         this.#notify = options.notify ?? ((level, message) => host.notice(level, message));
         this.#loadLimitMs = options.loadLimitMs ?? LOAD_LIMIT_MS;
+        this.#stopDocumentImports =
+            this.#dropIn === undefined
+                ? () => {}
+                : documentImports(this.#dropIn, (message) => this.#notify("warning", message));
     }
 
     /** Every module, built-in ones first in install order. A drop-in with a built-in's name is left out. */
@@ -832,6 +864,23 @@ export class ExtensionLoader {
         }
     }
 
+    /** While an update moves the checkout, edits load nothing: the restart after it loads the new version. */
+    #paused = false;
+
+    /** Stop or start loading modules again when they change, as `watch` does (`updates.ts`). */
+    pause(paused: boolean): void {
+        this.#paused = paused;
+        this.#webs.pause(paused);
+
+        if (paused) {
+            for (const timer of this.#timers.values()) {
+                clearTimeout(timer);
+            }
+
+            this.#timers.clear();
+        }
+    }
+
     /** Watch both folders and reload a module shortly after it changes. Keeps the old code when the new one fails. */
     watch(): void {
         this.#webs.watch();
@@ -859,6 +908,10 @@ export class ExtensionLoader {
     }
 
     #changed(file: string, directory: string): void {
+        if (this.#paused) {
+            return;
+        }
+
         // A browser module's file, or its folder: tabs load the new version.
         this.#webs.touched(directory, file);
 
@@ -941,6 +994,7 @@ export class ExtensionLoader {
     close(): Promise<void> {
         // Loads still running install nothing, and those waiting for their module end now.
         this.#closed = true;
+        this.#stopDocumentImports();
 
         for (const stop of this.#waiting) {
             stop();
