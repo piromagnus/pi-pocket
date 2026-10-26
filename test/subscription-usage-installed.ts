@@ -81,6 +81,7 @@ async function fixture(
             handler = run;
         },
         client: () => {},
+        command: () => {},
         onDispose: (run: () => unknown) => dispose.push(run),
     });
     t.after(async () => {
