@@ -1,7 +1,7 @@
 /**
  * The rate limits providers report on Pi's own requests: each provider's latest rate-limit headers, and when one last
  * refused a request for a limit (429). Providers such as Mistral, and Sign in with ChatGPT token sharing, have no usage
- * endpoint: these headers are all they say. Kept in memory and in `provider-limits.json` in the data folder, so the
+ * endpoint: these headers are all they say. Kept in memory and in `provider-response-limits.json` in the data folder, so the
  * usage dashboard has them after a restart. Only limit headers are kept, never cookies, ids, or anything else.
  * A separate in-memory weak map correlates terminal assistant messages to their own response headers for auto-resume.
  */
@@ -59,7 +59,8 @@ export class ProviderLimits {
     #timer: NodeJS.Timeout | undefined;
 
     constructor(dataDir: string, now: () => number = Date.now) {
-        this.#path = join(dataDir, "provider-limits.json");
+        // The built-in gate owns provider-limits.json; observations must never overwrite its deadlines.
+        this.#path = join(dataDir, "provider-response-limits.json");
         this.#now = now;
 
         try {

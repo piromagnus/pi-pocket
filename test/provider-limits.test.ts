@@ -1,6 +1,6 @@
 import { cleanUp, root } from "./helpers.ts";
 import assert from "node:assert/strict";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -47,7 +47,7 @@ test("a refusal for a limit outlasts later answers, and the limits survive a res
     limits.record("mistral", { status: 200, headers: { "x-ratelimit-limit-req-minute": "1000" } });
     await limits.flush();
 
-    const stored = JSON.parse(await readFile(join(dir, "provider-limits.json"), "utf8"));
+    const stored = JSON.parse(await readFile(join(dir, "provider-response-limits.json"), "utf8"));
     const reopened = new ProviderLimits(dir).all();
 
     assert.deepEqual(stored, reopened);
@@ -58,6 +58,24 @@ test("a refusal for a limit outlasts later answers, and the limits survive a res
         limited: { at: 1000, headers: { "retry-after": "60" } },
     });
     assert.equal(reopened.mistral!.headers["x-ratelimit-limit-req-minute"], "1000");
+});
+
+test("response observations and built-in gate deadlines never overwrite each other", async () => {
+    const dir = join(root, "limits-separate");
+    const file = join(dir, "provider-limits.json");
+    const hint = { version: 1, gates: [{ provider: "openai", since: 1000 }] };
+
+    await mkdir(dir, { recursive: true });
+    await writeFile(file, JSON.stringify(hint));
+
+    const limits = new ProviderLimits(dir);
+
+    assert.deepEqual(limits.all(), {});
+    limits.record("openai", { status: 429, headers: { "retry-after": "60" } });
+    await limits.flush();
+    assert.deepEqual(JSON.parse(await readFile(file, "utf8")), hint);
+    await writeFile(file, JSON.stringify({ version: 1, gates: [] }));
+    assert.equal(new ProviderLimits(dir).all().openai!.status, 429);
 });
 
 test("every streamed request records its response, and the caller's own callback still runs", async () => {

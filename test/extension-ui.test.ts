@@ -676,7 +676,7 @@ test("Lancet Guard stays on until its inline confirmation is accepted", real, as
 });
 
 test(
-    "while Pi works, Stop stays inside the message box on every phone width, with extension buttons and with more",
+    "Send, and while Pi works Stop, stay inside the message box on every phone width, with extension buttons and with more",
     real,
     async () => {
         const busy = (on: boolean) =>
@@ -688,18 +688,32 @@ test(
                 }
             `);
         const fit = () =>
-            inPage<{ scroll: number; client: number; stop: number; right: number; shown: number }>(`
+            inPage<{
+                scroll: number;
+                client: number;
+                stop: number;
+                send: number;
+                right: number;
+                shown: number;
+                below: boolean;
+            }>(`
                 const row = document.querySelector(".composer-row");
                 const stop = row.querySelector(".stop-button")?.getBoundingClientRect();
+                const send = row.querySelector(".send-button")?.getBoundingClientRect();
+                const shown = [...row.querySelectorAll(".ext-composer-button")].filter((each) => each.offsetWidth > 0);
+                const end = (stop ?? send).bottom;
 
                 return JSON.stringify({
                     scroll: row.scrollWidth,
                     client: row.clientWidth,
                     stop: stop?.right ?? 0,
+                    send: send?.right ?? 0,
                     right: row.getBoundingClientRect().right,
-                    shown: [...row.querySelectorAll(".ext-composer-button")].filter((each) => each.offsetWidth > 0).length,
+                    shown: shown.length,
+                    below: shown.every((each) => each.getBoundingClientRect().top >= end),
                 });
             `);
+
         const inside = (width: number, what: string, f: Awaited<ReturnType<typeof fit>>) => {
             assert.ok(
                 f.scroll <= f.client,
@@ -725,14 +739,48 @@ test(
                 `);
                 await until(() => has(".ext-composer-button"), "the extension's buttons");
 
+                // Idle: three buttons would push Send out of a phone's box: they take a line under it.
+                const idle = await fit();
+
+                assert.ok(
+                    idle.scroll <= idle.client && idle.send > 0 && idle.send <= idle.right,
+                    `Send is out of the row at ${width} px: ${JSON.stringify(idle)}`,
+                );
+                assert.equal(idle.shown, 3, `the buttons show at ${width} px`);
+                assert.ok(idle.below, `the buttons are on a line under Send at ${width} px`);
+
                 await busy(true);
                 const working = await fit();
 
                 inside(width, "with three extension buttons", working);
-                assert.equal(
-                    working.shown,
-                    width <= 480 ? 0 : 3,
-                    "the extension's buttons wait while Pi works",
+                assert.equal(working.shown, 3, "the extension's buttons stay, on their own line");
+                assert.ok(working.below, `the buttons are on a line under Stop at ${width} px`);
+
+                // A touch screen's taller tap layer on each mode still takes a tap above and below it: the cut that
+                // keeps Stop in is sideways only.
+                const taps = await inPage<{ above: boolean; below: boolean }[]>(`
+                    const touch = new CSSStyleSheet();
+
+                    touch.replaceSync(".mode-switch button { position: relative } .mode-switch button::before { content: ''; position: absolute; inset: -6px 0 }");
+                    document.adoptedStyleSheets = [...document.adoptedStyleSheets, touch];
+                    const hits = [...document.querySelectorAll(".composer .mode-switch button")].map((each) => {
+                        const box = each.getBoundingClientRect();
+                        const x = box.left + box.width / 2;
+
+                        return {
+                            above: document.elementFromPoint(x, box.top - 4) === each,
+                            below: document.elementFromPoint(x, box.bottom + 4) === each,
+                        };
+                    });
+
+                    document.adoptedStyleSheets = document.adoptedStyleSheets.filter((each) => each !== touch);
+
+                    return JSON.stringify(hits);
+                `);
+
+                assert.ok(
+                    taps.length === 3 && taps.every((each) => each.above && each.below),
+                    `the modes' tap layer is cut at ${width} px: ${JSON.stringify(taps)}`,
                 );
 
                 // Text that the browser's own font-size setting makes bigger (Firefox on a phone does): the labels of the
@@ -762,6 +810,97 @@ test(
             }
         } finally {
             await busy(false);
+            await page.setViewport(DESKTOP);
+        }
+    },
+);
+
+test(
+    "many rail buttons: the rail scrolls as a whole, and fades the edge where more is",
+    real,
+    async () => {
+        const measure = () =>
+            inPage<{
+                more: string | null;
+                scroll: number;
+                client: number;
+                groupScrolls: boolean;
+                lastIn: boolean;
+            }>(`
+                const rail = document.querySelector(".sidebar .rail");
+                const group = rail.querySelector(".rail-exts");
+                const last = [...rail.querySelectorAll(".rail-ext")].at(-1).getBoundingClientRect();
+                const box = rail.getBoundingClientRect();
+
+                return JSON.stringify({
+                    more: rail.dataset.more ?? null,
+                    scroll: rail.scrollHeight,
+                    client: rail.clientHeight,
+                    groupScrolls: group.scrollHeight > group.clientHeight,
+                    lastIn: last.top >= box.top && last.bottom <= box.bottom,
+                });
+            `);
+        const frames = () =>
+            page.evaluate(`
+                for (let frame = 0; frame < 3; frame++) {
+                    await new Promise((resolve) => requestAnimationFrame(resolve));
+                }
+            `);
+
+        try {
+            await page.setViewport({ ...DESKTOP, height: 560 });
+            await page.navigate(`${base}/s/${session}`);
+            await until(() => has(rail("Meter")), "the meter's rail button");
+            await withMeter(`
+                globalThis.manyRail = [];
+
+                for (let at = 0; at < 8; at++) {
+                    globalThis.manyRail.push(
+                        pocket.rail({ id: "many-" + at, title: "Many " + at, icon: "grid", run: () => {} }),
+                    );
+                }
+
+                return "null";
+            `);
+            await until(() => has(rail("Many 7")), "the eight buttons");
+            await frames();
+            const top = await measure();
+
+            // One scroller: the extensions' group shows all its buttons, and the rail says that more is below.
+            assert.equal(
+                top.groupScrolls,
+                false,
+                "the extensions' buttons do not scroll on their own",
+            );
+            assert.ok(
+                top.scroll > top.client,
+                `the rail is taller than the window: ${JSON.stringify(top)}`,
+            );
+            assert.equal(top.more, "down");
+            assert.equal(top.lastIn, false);
+
+            await page.evaluate(`document.querySelector(".sidebar .rail").scrollTop = 1e6`);
+            await frames();
+            const end = await measure();
+
+            assert.equal(end.more, "up");
+            assert.equal(end.lastIn, true, "the last button scrolls into view");
+
+            // Room for all: no fade.
+            await page.setViewport({ ...DESKTOP, height: 1400 });
+            await frames();
+            await until(
+                async () => (await measure()).more === null,
+                "no fade once everything shows",
+            );
+        } finally {
+            await withMeter(`
+                for (let at = 0; at < 8; at++) {
+                    globalThis.manyRail?.[at]?.remove();
+                }
+
+                return "null";
+            `);
             await page.setViewport(DESKTOP);
         }
     },
